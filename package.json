@@ -1,0 +1,95 @@
+{
+  "name": "json-pro",
+  "displayName": "JSON Pro",
+  "description": "Complete JSON toolbox: formatter, minifier, auto-fixer, diff checker, search, key sorter, validator, path finder, and sidebar tree viewer.",
+  "version": "1.0.0",
+  "publisher": "AkshayKale",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Formatters", "Linters", "Other"],
+  "keywords": ["json", "formatter", "validator", "diff", "linter"],
+  "icon": "images/icon.png",
+  "activationEvents": ["onLanguage:json", "onLanguage:jsonc"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "jsonPro.format",      "title": "JSON Pro: Format" },
+      { "command": "jsonPro.minify",      "title": "JSON Pro: Minify" },
+      { "command": "jsonPro.fix",         "title": "JSON Pro: Auto-Fix" },
+      { "command": "jsonPro.diff",        "title": "JSON Pro: Diff Checker" },
+      { "command": "jsonPro.search",      "title": "JSON Pro: Search" },
+      { "command": "jsonPro.sortKeys",    "title": "JSON Pro: Sort Keys" },
+      { "command": "jsonPro.copyPath",    "title": "JSON Pro: Copy Path" },
+      { "command": "jsonPro.toTypeScript","title": "JSON Pro: Generate TypeScript Interfaces" },
+      { "command": "jsonPro.flatten",     "title": "JSON Pro: Flatten JSON" },
+      { "command": "jsonPro.unflatten",   "title": "JSON Pro: Unflatten JSON" },
+      { "command": "jsonPro.jsonPath",    "title": "JSON Pro: JSONPath Query" },
+      { "command": "jsonPro.merge",       "title": "JSON Pro: Merge JSON" },
+      { "command": "jsonPro.removeEmpty", "title": "JSON Pro: Remove Nulls & Empty" },
+      { "command": "jsonPro.toYAML",      "title": "JSON Pro: Convert to YAML" },
+      { "command": "jsonPro.escapeJson",  "title": "JSON Pro: Escape JSON String" },
+      { "command": "jsonPro.unescapeJson","title": "JSON Pro: Unescape JSON String" },
+      { "command": "jsonPro.stats",       "title": "JSON Pro: Show Stats" },
+      { "command": "jsonPro.renameKey",   "title": "JSON Pro: Rename Key" },
+      { "command": "jsonPro.welcome",     "title": "JSON Pro: Welcome / Overview" }
+    ],
+    "keybindings": [
+      { "command": "jsonPro.format",   "key": "shift+alt+f", "when": "editorTextFocus && resourceExtname == .json" },
+      { "command": "jsonPro.minify",   "key": "shift+alt+m", "when": "editorTextFocus && resourceExtname == .json" },
+      { "command": "jsonPro.fix",      "key": "shift+alt+x", "when": "editorTextFocus && resourceExtname == .json" },
+      { "command": "jsonPro.stats",    "key": "shift+alt+s", "when": "editorTextFocus && resourceExtname == .json" },
+      { "command": "jsonPro.jsonPath", "key": "shift+alt+q", "when": "editorTextFocus && resourceExtname == .json" }
+    ],
+    "menus": {
+      "editor/context": [
+        { "command": "jsonPro.format",       "when": "resourceExtname == .json", "group": "jsonPro_1@1" },
+        { "command": "jsonPro.minify",       "when": "resourceExtname == .json", "group": "jsonPro_1@2" },
+        { "command": "jsonPro.sortKeys",     "when": "resourceExtname == .json", "group": "jsonPro_1@3" },
+        { "command": "jsonPro.fix",          "when": "resourceExtname == .json", "group": "jsonPro_2@1" },
+        { "command": "jsonPro.flatten",      "when": "resourceExtname == .json", "group": "jsonPro_2@2" },
+        { "command": "jsonPro.unflatten",    "when": "resourceExtname == .json", "group": "jsonPro_2@3" },
+        { "command": "jsonPro.removeEmpty",  "when": "resourceExtname == .json", "group": "jsonPro_2@4" },
+        { "command": "jsonPro.renameKey",    "when": "resourceExtname == .json", "group": "jsonPro_2@5" },
+        { "command": "jsonPro.diff",         "when": "resourceExtname == .json", "group": "jsonPro_3@1" },
+        { "command": "jsonPro.merge",        "when": "resourceExtname == .json", "group": "jsonPro_3@2" },
+        { "command": "jsonPro.jsonPath",     "when": "resourceExtname == .json", "group": "jsonPro_3@3" },
+        { "command": "jsonPro.stats",        "when": "resourceExtname == .json", "group": "jsonPro_3@4" },
+        { "command": "jsonPro.toTypeScript", "when": "resourceExtname == .json", "group": "jsonPro_4@1" },
+        { "command": "jsonPro.toYAML",       "when": "resourceExtname == .json", "group": "jsonPro_4@3" },
+        { "command": "jsonPro.escapeJson",   "when": "resourceExtname == .json", "group": "jsonPro_4@4" },
+        { "command": "jsonPro.search",       "when": "resourceExtname == .json", "group": "jsonPro_5@1" },
+        { "command": "jsonPro.copyPath",     "when": "resourceExtname == .json", "group": "jsonPro_5@2" }
+      ]
+    },
+    "configuration": {
+      "title": "JSON Pro",
+      "properties": {
+        "jsonPro.indentSize":     { "type": "number",  "default": 2,    "enum": [2, 4], "description": "Indentation spaces" },
+        "jsonPro.useTabs":        { "type": "boolean", "default": false, "description": "Use tabs for indentation" },
+        "jsonPro.autoFixOnSave":  { "type": "boolean", "default": false, "description": "Auto-fix on save" },
+        "jsonPro.showTreeOnOpen": { "type": "boolean", "default": true,  "description": "Auto-open tree view on JSON open" }
+      }
+    },
+    "views": {
+      "explorer": [
+        { "id": "jsonProTree", "name": "JSON Pro", "when": "resourceExtname == .json" }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc --noEmit",
+    "build":   "node esbuild.js",
+    "watch":   "node esbuild.js --watch",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "dependencies": {
+    "jsonc-parser": "^3.2.0"
+  },
+  "devDependencies": {
+    "@types/node":   "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild":       "^0.20.0",
+    "typescript":    "^5.3.0",
+    "@vscode/vsce":  "^2.24.0"
+  }
+}
