@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import * as jsoncParser from 'jsonc-parser';
+import { isJsonDocument } from './editorUtils';
 
-const output = vscode.window.createOutputChannel('JSON Pro');
+const PREVIEW_MAX = 60;
 
 export class JsonTreeProvider implements vscode.TreeDataProvider<JsonTreeItem> {
   private _onDidChangeTreeData = new vscode.EventEmitter<JsonTreeItem | undefined | void>();
@@ -9,8 +10,10 @@ export class JsonTreeProvider implements vscode.TreeDataProvider<JsonTreeItem> {
 
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private rootNodes: JsonTreeItem[] = [];
+  /** Set when the current document could not be parsed (shown as the view message). */
+  message: string | undefined;
 
-  constructor(private context: vscode.ExtensionContext) {
+  constructor() {
     this.refresh();
   }
 
@@ -20,10 +23,13 @@ export class JsonTreeProvider implements vscode.TreeDataProvider<JsonTreeItem> {
   }
 
   scheduleRefresh(): void {
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-    }
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => this.refresh(), 500);
+  }
+
+  dispose(): void {
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    this._onDidChangeTreeData.dispose();
   }
 
   getTreeItem(element: JsonTreeItem): vscode.TreeItem {
@@ -31,116 +37,112 @@ export class JsonTreeProvider implements vscode.TreeDataProvider<JsonTreeItem> {
   }
 
   getChildren(element?: JsonTreeItem): JsonTreeItem[] {
-    if (!element) {
-      return this.rootNodes;
-    }
-    return element.children;
+    return element ? element.children : this.rootNodes;
+  }
+
+  getParent(element: JsonTreeItem): JsonTreeItem | undefined {
+    return element.parent;
+  }
+
+  get roots(): JsonTreeItem[] {
+    return this.rootNodes;
   }
 
   private buildTree(): JsonTreeItem[] {
+    this.message = undefined;
     const editor = vscode.window.activeTextEditor;
-    if (!editor) return [];
+    if (!editor || !isJsonDocument(editor.document)) return [];
 
     const doc = editor.document;
-    if (doc.languageId !== 'json' && doc.languageId !== 'jsonc') return [];
-
     const text = doc.getText();
     if (text.trim().length === 0) return [];
 
     const errors: jsoncParser.ParseError[] = [];
-    const root = jsoncParser.parseTree(text, errors);
-
+    const root = jsoncParser.parseTree(text, errors, { allowTrailingComma: true });
     if (!root || errors.length > 0) {
-      output.appendLine(`[treeProvider] Parse errors: ${errors.length}`);
+      this.message = 'Document has syntax errors — tree unavailable';
       return [];
     }
-
-    return buildItems(root, doc, text);
+    return buildItems(root, doc, undefined);
   }
 }
 
-function buildItems(
-  node: jsoncParser.Node,
-  doc: vscode.TextDocument,
-  text: string
-): JsonTreeItem[] {
+function buildItems(node: jsoncParser.Node, doc: vscode.TextDocument, parent: JsonTreeItem | undefined): JsonTreeItem[] {
   if (node.type === 'object' && node.children) {
-    return node.children.map((prop) => {
+    return node.children.map(prop => {
       const keyNode = prop.children?.[0];
       const valueNode = prop.children?.[1];
       const key = keyNode ? String(jsoncParser.getNodeValue(keyNode)) : '?';
-      return buildItem(key, valueNode, doc, text);
+      return buildItem(key, valueNode ?? keyNode, doc, parent);
     });
   }
   if (node.type === 'array' && node.children) {
-    return node.children.map((child, i) => buildItem(String(i), child, doc, text));
+    return node.children.map((child, i) => buildItem(String(i), child, doc, parent));
   }
   return [];
 }
 
-function buildItem(
-  key: string,
-  node: jsoncParser.Node | undefined,
-  doc: vscode.TextDocument,
-  text: string
-): JsonTreeItem {
-  if (!node) {
-    return new JsonTreeItem(key, 'null', [], doc, node);
-  }
+function buildItem(key: string, node: jsoncParser.Node | undefined, doc: vscode.TextDocument, parent: JsonTreeItem | undefined): JsonTreeItem {
+  if (!node) return new JsonTreeItem(key, 'null', false, doc, undefined, parent);
 
   if (node.type === 'object') {
-    const children = buildItems(node, doc, text);
-    return new JsonTreeItem(key, '{}', children, doc, node);
+    const count = node.children?.length ?? 0;
+    const item = new JsonTreeItem(key, `{${count}}`, count > 0, doc, node, parent);
+    item.children = buildItems(node, doc, item);
+    return item;
   }
-
   if (node.type === 'array') {
-    const children = buildItems(node, doc, text);
-    return new JsonTreeItem(key, `[${node.children?.length ?? 0}]`, children, doc, node);
+    const count = node.children?.length ?? 0;
+    const item = new JsonTreeItem(key, `[${count}]`, count > 0, doc, node, parent);
+    item.children = buildItems(node, doc, item);
+    return item;
   }
 
   const value = jsoncParser.getNodeValue(node);
-  const preview = typeof value === 'string' ? `"${value}"` : String(value);
-  return new JsonTreeItem(key, preview, [], doc, node);
+  const raw = typeof value === 'string' ? value : String(value);
+  const clipped = raw.length > PREVIEW_MAX ? raw.slice(0, PREVIEW_MAX) + '…' : raw;
+  return new JsonTreeItem(key, typeof value === 'string' ? `"${clipped}"` : clipped, false, doc, node, parent);
 }
 
 export class JsonTreeItem extends vscode.TreeItem {
-  children: JsonTreeItem[];
+  children: JsonTreeItem[] = [];
 
   constructor(
     key: string,
     preview: string,
-    children: JsonTreeItem[],
-    private doc: vscode.TextDocument,
-    private node: jsoncParser.Node | undefined
+    hasChildren: boolean,
+    doc: vscode.TextDocument,
+    node: jsoncParser.Node | undefined,
+    readonly parent: JsonTreeItem | undefined
   ) {
-    super(
-      key,
-      children.length > 0
-        ? vscode.TreeItemCollapsibleState.Collapsed
-        : vscode.TreeItemCollapsibleState.None
-    );
-
-    this.children = children;
+    super(key, hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
     this.description = preview;
     this.tooltip = `${key}: ${preview}`;
-
+    this.iconPath = iconFor(node);
     if (node) {
-      this.command = {
-        command: 'jsonPro.revealNode',
-        title: 'Reveal in Editor',
-        arguments: [doc, node],
-      };
+      this.command = { command: 'jsonPro.revealNode', title: 'Reveal in Editor', arguments: [doc, node] };
     }
   }
 }
 
-export function revealNode(doc: vscode.TextDocument, node: jsoncParser.Node): void {
-  const editor = vscode.window.visibleTextEditors.find((e) => e.document === doc);
-  if (!editor) return;
+function iconFor(node: jsoncParser.Node | undefined): vscode.ThemeIcon {
+  switch (node?.type) {
+    case 'object': return new vscode.ThemeIcon('symbol-object');
+    case 'array': return new vscode.ThemeIcon('symbol-array');
+    case 'string': return new vscode.ThemeIcon('symbol-string');
+    case 'number': return new vscode.ThemeIcon('symbol-number');
+    case 'boolean': return new vscode.ThemeIcon('symbol-boolean');
+    default: return new vscode.ThemeIcon('symbol-null');
+  }
+}
 
+export async function revealNode(doc: vscode.TextDocument, node: jsoncParser.Node): Promise<void> {
+  let editor = vscode.window.visibleTextEditors.find(e => e.document === doc);
+  if (!editor) {
+    try { editor = await vscode.window.showTextDocument(doc, { preserveFocus: false }); } catch { return; }
+  }
   const start = doc.positionAt(node.offset);
   const end = doc.positionAt(node.offset + node.length);
-  const range = new vscode.Range(start, end);
   editor.selection = new vscode.Selection(start, start);
-  editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+  editor.revealRange(new vscode.Range(start, end), vscode.TextEditorRevealType.InCenter);
 }

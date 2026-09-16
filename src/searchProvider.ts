@@ -1,115 +1,61 @@
 import * as vscode from 'vscode';
-import { getOutputChannel } from './outputChannel';
+import * as jsoncParser from 'jsonc-parser';
+import { parseJsonText } from './core/json';
+import { buildDotPath, PathSegment } from './core/path';
+import { reportError } from './editorUtils';
 
-const output = getOutputChannel();
+const MAX_ITEMS = 20_000;
 
+interface SearchItem extends vscode.QuickPickItem { segments: PathSegment[] }
+
+/** Fuzzy-search keys and values in a QuickPick; selecting a match jumps to it. */
 export async function searchJson(editor: vscode.TextEditor): Promise<void> {
   const document = editor.document;
   const text = document.getText();
-
-  if (text.trim().length === 0) {
-    return;
-  }
+  if (text.trim().length === 0) return;
 
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    vscode.window.setStatusBarMessage('$(error) JSON Pro: Invalid JSON — cannot search', 4000);
-    return;
-  }
+  try { parsed = parseJsonText(text); }
+  catch (e) { reportError('search', e, editor); return; }
 
-  const flat = flattenJson(parsed);
-  if (Object.keys(flat).length === 0) {
+  const items: SearchItem[] = [];
+  collect(parsed, [], items);
+  if (items.length === 0) {
     vscode.window.setStatusBarMessage('$(info) JSON Pro: Nothing to search', 3000);
     return;
   }
 
-  const query = await vscode.window.showInputBox({
-    prompt: 'Search JSON keys and values',
-    placeHolder: 'e.g. name or John',
-  });
-
-  if (query === undefined || query.trim() === '') {
-    return;
-  }
-
-  const q = query.toLowerCase();
-  const matches = Object.entries(flat).filter(([key, value]) => {
-    return (
-      key.toLowerCase().includes(q) ||
-      (typeof value === 'string' && value.toLowerCase().includes(q)) ||
-      String(value).toLowerCase().includes(q)
-    );
-  });
-
-  if (matches.length === 0) {
-    vscode.window.setStatusBarMessage(`$(search) JSON Pro: No matches for "${query}"`, 3000);
-    return;
-  }
-
-  const items: vscode.QuickPickItem[] = matches.map(([key, value]) => ({
-    label: key,
-    description: String(value),
-  }));
-
-  const selected = await vscode.window.showQuickPick(items, {
+  const truncated = items.length > MAX_ITEMS;
+  const selected = await vscode.window.showQuickPick(truncated ? items.slice(0, MAX_ITEMS) : items, {
     matchOnDescription: true,
-    placeHolder: `${matches.length} match(es) — select to navigate`,
+    placeHolder: truncated
+      ? `Type to search keys and values (showing first ${MAX_ITEMS.toLocaleString()} of ${items.length.toLocaleString()} entries)`
+      : `Type to search ${items.length.toLocaleString()} keys and values`,
   });
+  if (!selected) return;
 
-  if (!selected) {
-    return;
-  }
+  const root = jsoncParser.parseTree(text, [], { allowTrailingComma: true });
+  const node = root ? jsoncParser.findNodeAtLocation(root, selected.segments) : undefined;
+  if (!node) return;
 
-  // Find the key in the document text
-  const keyToFind = selected.label;
-  const offset = findKeyOffset(text, keyToFind);
-
-  if (offset === -1) {
-    output.appendLine(`[search] Could not locate key "${keyToFind}" in document`);
-    return;
-  }
-
-  const pos = document.positionAt(offset);
-  const range = new vscode.Range(pos, pos);
+  const target = node.parent?.type === 'property' ? node.parent : node;
+  const pos = document.positionAt(target.offset);
+  const end = document.positionAt(node.offset + node.length);
   editor.selection = new vscode.Selection(pos, pos);
-  editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+  editor.revealRange(new vscode.Range(pos, end), vscode.TextEditorRevealType.InCenter);
 }
 
-function flattenJson(
-  value: unknown,
-  prefix = '',
-  result: Record<string, unknown> = {}
-): Record<string, unknown> {
-  if (value === null || typeof value !== 'object') {
-    if (prefix) result[prefix] = value;
-    return result;
-  }
+function collect(value: unknown, segments: PathSegment[], items: SearchItem[]): void {
   if (Array.isArray(value)) {
-    value.forEach((item, i) => {
-      flattenJson(item, prefix ? `${prefix}[${i}]` : `[${i}]`, result);
+    value.forEach((v, i) => collect(v, [...segments, i], items));
+  } else if (value !== null && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) collect(v, [...segments, k], items);
+  } else if (segments.length > 0) {
+    const preview = typeof value === 'string' ? value : JSON.stringify(value);
+    items.push({
+      label: buildDotPath(segments),
+      description: preview.length > 120 ? preview.slice(0, 120) + '…' : preview,
+      segments,
     });
-    return result;
   }
-  const obj = value as Record<string, unknown>;
-  for (const [k, v] of Object.entries(obj)) {
-    flattenJson(v, prefix ? `${prefix}.${k}` : k, result);
-  }
-  return result;
-}
-
-function findKeyOffset(text: string, dotPath: string): number {
-  // Extract the leaf key (last segment) to search in raw text
-  const segments = dotPath.split(/\.|\[(\d+)\]/).filter(Boolean);
-  const leafKey = segments[segments.length - 1];
-
-  // Search for "leafKey": in the text
-  const keyPattern = new RegExp(`"${escapeRegex(leafKey)}"\\s*:`, 'g');
-  const match = keyPattern.exec(text);
-  return match ? match.index : -1;
-}
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

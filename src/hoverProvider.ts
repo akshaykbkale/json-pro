@@ -2,85 +2,73 @@ import * as vscode from 'vscode';
 
 export function registerHoverProvider(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
-    vscode.languages.registerHoverProvider(
-      [{ language: 'json' }, { language: 'jsonc' }],
-      { provideHover }
-    )
+    vscode.languages.registerHoverProvider([{ language: 'json' }, { language: 'jsonc' }], { provideHover })
   );
 }
 
-function provideHover(
-  document: vscode.TextDocument,
-  position: vscode.Position
-): vscode.Hover | null {
-  const hovers: string[] = [];
-
-  // ── Check for a quoted string value at cursor ──────────────────────────────
+function provideHover(document: vscode.TextDocument, position: vscode.Position): vscode.Hover | null {
+  // Quoted string at cursor
   const strRange = document.getWordRangeAtPosition(position, /"(?:[^"\\]|\\.)*"/);
   if (strRange) {
-    const raw = document.getText(strRange);
-    const inner = raw.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    let inner: string;
+    try { inner = JSON.parse(document.getText(strRange)) as string; }
+    catch { return null; }
 
-    // Base64 detection
-    if (/^[A-Za-z0-9+/]{8,}={0,2}$/.test(inner) && inner.length % 4 === 0) {
-      try {
-        const decoded = Buffer.from(inner, 'base64').toString('utf8');
-        if (isPrintable(decoded) && decoded !== inner) {
-          const preview = decoded.length > 300
-            ? decoded.slice(0, 300) + '\u2026'
-            : decoded;
-          hovers.push(`**Base64 Decoded** (${inner.length} chars → ${decoded.length} chars)\n\`\`\`\n${preview}\n\`\`\``);
-        }
-      } catch { /* not valid base64 */ }
-    }
+    const hovers: string[] = [];
+    const b64 = describeBase64(inner);
+    if (b64) hovers.push(b64);
+    const iso = describeIsoDate(inner);
+    if (iso) hovers.push(iso);
+    const ts = describeTimestamp(inner);
+    if (ts) hovers.push(ts);
+    if (inner.length >= 40) hovers.push(`**String length:** ${inner.length} characters`);
 
-    // ISO 8601 date string detection
-    if (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(inner)) {
-      const d = new Date(inner);
-      if (!isNaN(d.getTime())) {
-        hovers.push(`**ISO Date**  \n${d.toUTCString()}  \n${d.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'long' })}`);
-      }
-    }
-
-    // Unix timestamp as string (10 or 13 digit number string)
-    if (/^\d{10}$/.test(inner) || /^\d{13}$/.test(inner)) {
-      const ms = inner.length === 13 ? parseInt(inner, 10) : parseInt(inner, 10) * 1000;
-      const d = new Date(ms);
-      if (d.getFullYear() >= 1970 && d.getFullYear() <= 2100) {
-        const unit = inner.length === 10 ? 'Unix timestamp (seconds)' : 'Unix timestamp (ms)';
-        hovers.push(`**${unit}**  \n${d.toUTCString()}  \n${d.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'long' })}`);
-      }
-    }
-
-    if (hovers.length > 0) {
-      const md = new vscode.MarkdownString(hovers.join('\n\n---\n\n'));
-      md.isTrusted = true;
-      return new vscode.Hover(md, strRange);
-    }
+    return hovers.length > 0 ? new vscode.Hover(markdown(hovers.join('\n\n---\n\n')), strRange) : null;
   }
 
-  // ── Check for a bare number at cursor (unix timestamp) ─────────────────────
+  // Bare number at cursor
   const numRange = document.getWordRangeAtPosition(position, /\b\d{10,13}\b/);
   if (numRange) {
-    const raw = document.getText(numRange);
-    if (/^\d{10}$/.test(raw) || /^\d{13}$/.test(raw)) {
-      const ms = raw.length === 13 ? parseInt(raw, 10) : parseInt(raw, 10) * 1000;
-      const d = new Date(ms);
-      if (d.getFullYear() >= 1970 && d.getFullYear() <= 2100) {
-        const unit = raw.length === 10 ? 'Unix timestamp (seconds)' : 'Unix timestamp (ms)';
-        const md = new vscode.MarkdownString(
-          `**${unit}**  \n${d.toUTCString()}  \n${d.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'long' })}`
-        );
-        md.isTrusted = true;
-        return new vscode.Hover(md, numRange);
-      }
-    }
+    const ts = describeTimestamp(document.getText(numRange));
+    if (ts) return new vscode.Hover(markdown(ts), numRange);
   }
-
   return null;
 }
 
+function markdown(text: string): vscode.MarkdownString {
+  const md = new vscode.MarkdownString(text);
+  md.isTrusted = false; // content is derived from the document, never execute command links
+  return md;
+}
+
+function describeBase64(s: string): string | null {
+  if (!/^[A-Za-z0-9+/]{8,}={0,2}$/.test(s) || s.length % 4 !== 0) return null;
+  try {
+    const decoded = Buffer.from(s, 'base64').toString('utf8');
+    if (!isPrintable(decoded) || decoded === s) return null;
+    const preview = decoded.length > 300 ? decoded.slice(0, 300) + '…' : decoded;
+    return `**Base64 decoded** (${s.length} → ${decoded.length} chars)\n\`\`\`text\n${preview.replace(/```/g, '`​``')}\n\`\`\``;
+  } catch {
+    return null;
+  }
+}
+
+function describeIsoDate(s: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(s)) return null;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return null;
+  return `**ISO 8601 date**  \n${d.toUTCString()}  \n${d.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'long' })}  \nUnix: ${Math.floor(d.getTime() / 1000)}`;
+}
+
+function describeTimestamp(s: string): string | null {
+  if (!/^\d{10}$/.test(s) && !/^\d{13}$/.test(s)) return null;
+  const ms = s.length === 13 ? parseInt(s, 10) : parseInt(s, 10) * 1000;
+  const d = new Date(ms);
+  if (d.getFullYear() < 1980 || d.getFullYear() > 2100) return null;
+  const unit = s.length === 10 ? 'Unix timestamp (seconds)' : 'Unix timestamp (milliseconds)';
+  return `**${unit}**  \n${d.toUTCString()}  \n${d.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'long' })}  \nISO: ${d.toISOString()}`;
+}
+
 function isPrintable(s: string): boolean {
-  // Allow printable ASCII + whitespace
-  return /^[\x09\x0A\x0D\x20-\x7E]*$/.test(s);
+  return /^[\x09\x0A\x0D\x20-\x7E -￿]*$/.test(s) && !/�/.test(s);
 }
