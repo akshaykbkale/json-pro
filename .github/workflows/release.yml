@@ -1,0 +1,48 @@
+name: Release
+
+# Tag a commit as vX.Y.Z (matching the version in package.json) to build the VSIX,
+# attach it to a GitHub Release and — when a VSCE_PAT repository secret is configured —
+# publish it to the Visual Studio Marketplace.
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify tag matches package.json version
+        run: |
+          PKG_VERSION="v$(node -p "require('./package.json').version")"
+          if [ "$PKG_VERSION" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${PKG_VERSION}" >&2
+            exit 1
+          fi
+
+      - run: npm run compile
+      - run: npm test
+      - run: npx vsce package --out "json-pro-${GITHUB_REF_NAME}.vsix"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: json-pro-*.vsix
+          generate_release_notes: true
+
+      - name: Publish to Visual Studio Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        if: env.VSCE_PAT != ''
+        run: npx vsce publish --packagePath json-pro-*.vsix
