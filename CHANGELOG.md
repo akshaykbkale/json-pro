@@ -39,6 +39,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Diagnostics are debounced per document, so editing two files quickly no longer drops validation for one of them.
 - The tree view no longer steals keyboard focus from the editor when a JSON file becomes active; it shows a message instead of going blank when the document has syntax errors.
 - The welcome page opens without stealing focus on first install, links to the extension's own changelog and shows the real version.
+- Auto-fix on save only runs on explicit saves. With `files.autoSave` it no longer rewrites the buffer mid-typing, and it skips files above the large-file threshold.
+- A `"__proto__"` key was silently deleted by Sort Keys, Flatten, Unflatten, Remove Nulls, Rename Key, Search, Stats and the converters; `constructor`/`prototype` keys were dropped by Merge and rejected by Unflatten. All three now round-trip as ordinary data.
+- Diff pairing of removed/added lines was quadratic and could stall the extension host for seconds on large objects; it is now linear.
+- Diff and Merge accept JSONC input (comments, trailing commas) instead of rejecting the pre-filled left side.
+- Merge no longer binds "Apply" to a non-JSON editor, so running it from the palette with a TypeScript file active cannot overwrite that file.
+- Auto-Fix refuses to apply a preview if the document changed while the preview was open.
+- JSONPath results are capped per value in the webview; copy still yields the full value.
+- YAML export quotes the `<<` merge key.
 - Three separate "JSON Pro" output channels were created; there is now one.
 - Webview message listeners are disposed with their panel instead of accumulating until deactivation.
 - Command failures show an error notification (with a "Run Auto-Fix" shortcut for syntax errors) instead of a status-bar message that was easy to miss.

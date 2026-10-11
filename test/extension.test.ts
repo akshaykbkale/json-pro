@@ -133,6 +133,23 @@ test('auto-fix on save applies through waitUntil only when enabled and needed', 
 
   const other = openDocument('{a:1}', 'plaintext');
   assert.deepEqual(await save(other), []);
+
+  const typing = openDocument('{"a": "hel');
+  assert.deepEqual(await save(typing, vscode.TextDocumentSaveReason.AfterDelay), [], 'auto-save never rewrites the buffer');
+  assert.deepEqual(await save(typing, vscode.TextDocumentSaveReason.FocusOut), []);
+  assert.equal((await save(typing)).length, 1);
+
+  setConfig('jsonPro.largeFileThresholdKB', 1);
+  const big = openDocument('{"a": [' + '1,'.repeat(600) + '1],}');
+  assert.deepEqual(await save(big), [], 'large files are not fixed on save');
+});
+
+test('auto-fix refuses to apply a preview that is stale', async () => {
+  const doc = openDocument('{a: 1}');
+  state.answers.info.push(() => { typeText(doc, '{a: 1, b: 2}'); return 'Apply'; });
+  await run('jsonPro.fix');
+  assert.equal(doc.getText(), '{a: 1, b: 2}');
+  assert.match(state.warningMessages.at(-1)!, /changed while the preview was open/);
 });
 
 // ── Diagnostics ───────────────────────────────────────────────────────────────
@@ -200,6 +217,7 @@ test('large files skip live features but commands still work', async () => {
 test('tree view is lazy, reveals without focus and reports syntax errors', async () => {
   const doc = openDocument(SAMPLE);
   const view = state.treeViews[0];
+  await sleep(0); // reveal waits for the context key to be set
   const reveal = view.reveals.at(-1)!;
   assert.equal(reveal.options.focus, false);
   assert.equal(reveal.element.label, 'users');
@@ -337,20 +355,34 @@ test('JSONPath panel answers queries, copies, and follows document edits', async
   await panel.receive({ command: 'query', path: '$.users[*].name' });
   let result = panel.posted.at(-1)!;
   assert.equal(result.command, 'queryResult');
-  assert.deepEqual(result.results.map((r: { value: unknown }) => r.value), ['Ann', 'Bob']);
+  assert.deepEqual(result.results.map((r: { text: string }) => r.text), ['"Ann"', '"Bob"']);
   assert.equal(result.results[0].path, '$.users[0].name');
 
   await panel.receive({ command: 'query', path: 'users' });
   assert.equal(panel.posted.at(-1)!.type, 'error');
 
-  await panel.receive({ command: 'copy', text: 'hello' });
-  assert.equal(state.clipboard, 'hello');
+  await panel.receive({ command: 'query', path: '$.users[1]' });
+  await panel.receive({ command: 'copy', index: 0, what: 'value' });
+  assert.deepEqual(JSON.parse(state.clipboard), { id: 2, name: 'Bob' });
+  await panel.receive({ command: 'copy', index: 0, what: 'path' });
+  assert.equal(state.clipboard, '$.users[1]');
+  await panel.receive({ command: 'copy', index: 7, what: 'path' });
+  assert.equal(state.clipboard, '$.users[1]', 'out-of-range index ignored');
+
+  const huge = { big: 'x'.repeat(10_000) };
+  typeText(doc, JSON.stringify(huge));
+  await panel.receive({ command: 'query', path: '$' });
+  const big = panel.posted.at(-1)!.results[0];
+  assert.equal(big.truncated, true);
+  assert.ok(big.text.length < 4200, 'payload is capped');
+  await panel.receive({ command: 'copy', index: 0, what: 'value' });
+  assert.deepEqual(JSON.parse(state.clipboard), huge, 'copy still yields the full value');
 
   await panel.receive({ command: 'query', path: '$.meta.count' });
   typeText(doc, '{"meta":{"count":99}}');
   await sleep(400);
   result = panel.posted.at(-1)!;
-  assert.deepEqual(result.results.map((r: { value: unknown }) => r.value), [99]);
+  assert.deepEqual(result.results.map((r: { text: string }) => r.text), ['99']);
 
   panel.dispose();
   typeText(doc, '{"meta":{"count":1}}');
@@ -375,6 +407,8 @@ test('diff panel compares, loads files and applies to the source document', asyn
 
   await panel.receive({ command: 'compare', left: '{', right: '{}' });
   assert.equal(panel.posted.at(-1)!.side, 'left');
+  await panel.receive({ command: 'compare', left: '{"a":1, // c\n}', right: '{"a":1,}' });
+  assert.equal(panel.posted.at(-1)!.summary.same, 3, 'JSONC accepted');
 
   const other = openDocument('{"loaded":true}', 'json', { activate: false });
   state.answers.openDialog.push([other.uri]);
@@ -401,6 +435,14 @@ test('merge panel merges with the chosen array strategy and applies to the sourc
   await panel.receive({ command: 'applyToEditor', merged: '{"done":true}' });
   assert.equal(doc.getText(), '{"done":true}');
   assert.equal(panel.disposed, true);
+
+  const ts = openDocument('const x = 1;', 'typescript');
+  await run('jsonPro.merge');
+  const unbound = lastPanel();
+  assert.equal(unbound.posted[0].json, '', 'non-JSON editor is not loaded into the panel');
+  await unbound.receive({ command: 'applyToEditor', merged: '{}' });
+  assert.equal(ts.getText(), 'const x = 1;', 'non-JSON editor is never overwritten');
+  assert.equal(state.openedUntitled.at(-1)!.content, '{}');
 });
 
 test('welcome panel only runs JSON Pro commands and opens the bundled changelog', async () => {

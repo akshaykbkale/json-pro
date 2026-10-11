@@ -41,6 +41,7 @@ export enum TreeItemCollapsibleState { None = 0, Collapsed = 1, Expanded = 2 }
 export enum ViewColumn { Active = -1, Beside = -2, One = 1, Two = 2 }
 export enum DiagnosticSeverity { Error = 0, Warning = 1, Information = 2, Hint = 3 }
 export enum TextEditorRevealType { Default = 0, InCenter = 1, InCenterIfOutsideViewport = 2 }
+export enum TextDocumentSaveReason { Manual = 1, AfterDelay = 2, FocusOut = 3 }
 
 export class Disposable { constructor(private fn: () => void = () => {}) {} dispose(): void { this.fn(); } }
 
@@ -166,7 +167,7 @@ const events = {
   openDoc: new EventEmitter<TextDocument>(),
   changeDoc: new EventEmitter<{ document: TextDocument; contentChanges: any[] }>(),
   closeDoc: new EventEmitter<TextDocument>(),
-  willSave: new EventEmitter<{ document: TextDocument; waitUntil(t: Thenable<TextEdit[]>): void }>(),
+  willSave: new EventEmitter<{ document: TextDocument; reason: TextDocumentSaveReason; waitUntil(t: Thenable<TextEdit[]>): void }>(),
   config: new EventEmitter<{ affectsConfiguration(s: string): boolean }>(),
 };
 
@@ -174,7 +175,7 @@ function next<T>(queue: T[], fallback: T): T { return queue.length ? queue.shift
 
 export const vscode: any = {
   Position, Range, Selection, Uri, EndOfLine, StatusBarAlignment, TreeItemCollapsibleState, ViewColumn, DiagnosticSeverity,
-  TextEditorRevealType, Disposable, EventEmitter, TreeItem, ThemeIcon, MarkdownString, Hover, Diagnostic, TextEdit, TabInputTextDiff, WorkspaceEdit,
+  TextEditorRevealType, TextDocumentSaveReason, Disposable, EventEmitter, TreeItem, ThemeIcon, MarkdownString, Hover, Diagnostic, TextEdit, TabInputTextDiff, WorkspaceEdit,
   window: {
     activeTextEditor: undefined as TextEditor | undefined,
     visibleTextEditors: [] as TextEditor[],
@@ -324,9 +325,9 @@ export function closeDocument(doc: TextDocument): void {
 }
 
 /** Simulate a save; returns the edits handlers asked to apply via waitUntil. */
-export async function save(doc: TextDocument): Promise<TextEdit[]> {
+export async function save(doc: TextDocument, reason = TextDocumentSaveReason.Manual): Promise<TextEdit[]> {
   const pending: Array<Thenable<TextEdit[]>> = [];
-  events.willSave.fire({ document: doc, waitUntil: t => pending.push(t) });
+  events.willSave.fire({ document: doc, reason, waitUntil: t => pending.push(t) });
   return (await Promise.all(pending)).flat();
 }
 

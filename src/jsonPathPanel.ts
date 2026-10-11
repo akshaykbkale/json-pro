@@ -3,6 +3,8 @@ import { runJsonPathQuery, JsonPathMatch } from './core/jsonPath';
 import { generateNonce } from './editorUtils';
 
 const MAX_RESULTS = 1000;
+/** Values longer than this (pretty-printed) are sent as a truncated preview; copy resolves the full value. */
+const MAX_VALUE_CHARS = 4000;
 
 /** Open a live JSONPath query panel bound to the given editor's document. */
 export function openJsonPathPanel(context: vscode.ExtensionContext, editor: vscode.TextEditor | undefined): void {
@@ -21,22 +23,28 @@ export function openJsonPathPanel(context: vscode.ExtensionContext, editor: vsco
   const nonce = generateNonce();
   panel.webview.html = getHtml(nonce, sourceUri ? vscode.workspace.asRelativePath(sourceUri) : 'untitled');
 
+  let lastResults: JsonPathMatch[] = [];
+
   const send = (path: string): void => {
     lastPath = path;
     const result = runJsonPathQuery(currentText, path);
-    const results = result.results ?? [];
+    lastResults = (result.results ?? []).slice(0, MAX_RESULTS);
     void panel.webview.postMessage({
       command: 'queryResult',
       type: result.type,
       error: result.error,
-      total: results.length,
-      results: results.slice(0, MAX_RESULTS).map(shrink),
+      total: result.results?.length ?? 0,
+      results: lastResults.map(shrink),
     });
   };
 
-  disposables.push(panel.webview.onDidReceiveMessage((msg: { command: string; path?: string; text?: string }) => {
+  disposables.push(panel.webview.onDidReceiveMessage((msg: { command: string; path?: string; index?: number; what?: 'path' | 'value' }) => {
     if (msg.command === 'query') send(msg.path ?? '');
-    else if (msg.command === 'copy' && typeof msg.text === 'string') void vscode.env.clipboard.writeText(msg.text);
+    else if (msg.command === 'copy' && typeof msg.index === 'number') {
+      const match = lastResults[msg.index];
+      if (!match) return;
+      void vscode.env.clipboard.writeText(msg.what === 'path' ? match.path : formatValue(match.value));
+    }
   }));
 
   // Keep results in sync while the source document is edited
@@ -54,9 +62,16 @@ export function openJsonPathPanel(context: vscode.ExtensionContext, editor: vsco
   panel.onDidDispose(() => disposables.forEach(d => d.dispose()), undefined, context.subscriptions);
 }
 
-function shrink(m: JsonPathMatch): { path: string; value: unknown; type: string } {
+function formatValue(v: unknown): string {
+  return typeof v === 'object' && v !== null ? JSON.stringify(v, null, 2) : JSON.stringify(v);
+}
+
+/** Pre-render each value and cap its size so huge subtrees never flood the webview. */
+function shrink(m: JsonPathMatch): { path: string; text: string; type: string; truncated: boolean } {
   const type = m.value === null ? 'null' : Array.isArray(m.value) ? 'array' : typeof m.value;
-  return { path: m.path, value: m.value, type };
+  const full = formatValue(m.value);
+  const truncated = full.length > MAX_VALUE_CHARS;
+  return { path: m.path, text: truncated ? full.slice(0, MAX_VALUE_CHARS) + '\n… (truncated, copy value for the full text)' : full, type, truncated };
 }
 
 function getHtml(nonce: string, sourceName: string): string {
@@ -147,10 +162,9 @@ function getHtml(nonce: string, sourceName: string): string {
   list.addEventListener('click', e => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
-    const r = results[Number(btn.dataset.idx)];
-    if (!r) return;
-    const text = btn.dataset.action === 'copyPath' ? r.path : formatValue(r.value);
-    vscode.postMessage({ command: 'copy', text });
+    const idx = Number(btn.dataset.idx);
+    if (!results[idx]) return;
+    vscode.postMessage({ command: 'copy', index: idx, what: btn.dataset.action === 'copyPath' ? 'path' : 'value' });
     const old = btn.textContent; btn.textContent = 'copied'; setTimeout(() => { btn.textContent = old; }, 1200);
   });
 
@@ -178,14 +192,13 @@ function getHtml(nonce: string, sourceName: string): string {
         '<div class="result-path"><span class="idx">#' + (i + 1) + '</span><span>' + esc(r.path) + '</span>' +
         '<span class="actions"><button class="copy-btn" data-action="copyPath" data-idx="' + i + '">copy path</button>' +
         '<button class="copy-btn" data-action="copyValue" data-idx="' + i + '">copy value</button></span></div>' +
-        '<div class="result-value t-' + r.type + '">' + esc(formatValue(r.value)) + '</div>' +
+        '<div class="result-value t-' + r.type + '">' + esc(r.text) + '</div>' +
       '</div>').join('');
   }
 
   function showEmpty(text, icon) {
     list.innerHTML = '<div class="empty-state"><div class="empty-icon">' + (icon || '🔍') + '</div><div>' + esc(text) + '</div></div>';
   }
-  function formatValue(v) { return typeof v === 'object' && v !== null ? JSON.stringify(v, null, 2) : JSON.stringify(v); }
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 </script>
 </body>

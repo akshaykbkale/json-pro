@@ -6,6 +6,13 @@ test('parseJsonText tolerates comments and trailing commas by default', () => {
   assert.deepEqual(parseJsonText('{ "a": 1, /* c */ "b": [1, 2,], } // end'), { a: 1, b: [1, 2] });
 });
 
+test('parseJsonText keeps a "__proto__" key as plain data', () => {
+  const v = parseJsonText('{"__proto__": {"x": 1}, "b": 2}') as Record<string, unknown>;
+  assert.deepEqual(Object.keys(v), ['__proto__', 'b']);
+  assert.equal(Object.getPrototypeOf(v), Object.prototype);
+  assert.equal(sortKeysJsonText('{"b": 2, "__proto__": {"x": 1}}', 0), '{"__proto__":{"x":1},"b":2}');
+});
+
 test('parseJsonText throws a JsonParseError with offset on invalid input', () => {
   assert.throws(() => parseJsonText('{"a": }'), (e: unknown) => e instanceof JsonParseError && e.offset === 6);
 });

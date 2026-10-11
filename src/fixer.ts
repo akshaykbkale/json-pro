@@ -59,6 +59,7 @@ export async function fixJson(editor: vscode.TextEditor): Promise<void> {
     return;
   }
 
+  const versionAtPreview = document.version;
   const stamp = Date.now();
   const originalUri = vscode.Uri.parse(`${PREVIEW_SCHEME}:/${stamp}/Original.json`);
   const fixedUri = vscode.Uri.parse(`${PREVIEW_SCHEME}:/${stamp}/Fixed.json`);
@@ -78,6 +79,10 @@ export async function fixJson(editor: vscode.TextEditor): Promise<void> {
     await closePreviewTabs(originalUri, fixedUri);
 
     if (answer === 'Apply') {
+      if (document.version !== versionAtPreview) {
+        void vscode.window.showWarningMessage('JSON Pro: The document changed while the preview was open — run Auto-Fix again.');
+        return;
+      }
       await replaceDocumentText(document, outcome.text);
       statusMessage('Auto-fix applied');
     }

@@ -7,10 +7,16 @@ test('right overrides scalars, objects merge recursively, arrays concat by defau
   assert.deepEqual(deepMerge({ e: [1] }, { e: [2] }, 'replace'), { e: [2] });
 });
 
-test('prototype-polluting keys are dropped', () => {
-  const merged = deepMerge({}, JSON.parse('{"__proto__": {"polluted": true}, "ok": 1}')) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(merged), ['ok']);
+test('"__proto__", "constructor" and "prototype" keys survive as plain data without polluting prototypes', () => {
+  const merged = deepMerge({ constructor: 1 }, JSON.parse('{"__proto__": {"polluted": true}, "prototype": 2, "ok": 1}')) as Record<string, unknown>;
+  assert.deepEqual(Object.keys(merged), ['constructor', '__proto__', 'prototype', 'ok']);
+  assert.equal(JSON.stringify(merged), '{"constructor":1,"__proto__":{"polluted":true},"prototype":2,"ok":1}');
+  assert.equal(Object.getPrototypeOf(merged), Object.prototype);
   assert.equal(({} as Record<string, unknown>).polluted, undefined);
+});
+
+test('computeMerge accepts JSONC input', () => {
+  assert.equal(computeMerge('{"a":1, // c\n}', '{"b":2,}', 'concat', 0).merged, '{"a":1,"b":2}');
 });
 
 test('computeMerge reports the invalid side', () => {
