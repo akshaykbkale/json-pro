@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDotPath, buildJsonPath } from '../src/core/path';
+import { buildDotPath, buildJsonPath } from '../../src/core/path';
 
 test('buildDotPath renders identifiers, indices and quoted keys', () => {
   assert.equal(buildDotPath(['users', 0, 'address', 'city']), 'users[0].address.city');

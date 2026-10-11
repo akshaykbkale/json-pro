@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeStats } from '../src/core/stats';
+import { computeStats } from '../../src/core/stats';
 
 test('computeStats counts keys, values, types and depth', () => {
   const text = '{"a":[1,"two",null],"b":{"c":true,"d":{"e":"x"}}}';

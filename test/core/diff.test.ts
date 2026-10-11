@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeJsonDiff, lineDiff } from '../src/core/diff';
+import { computeJsonDiff, lineDiff } from '../../src/core/diff';
 
 test('identical documents produce only equal lines', () => {
   const r = computeJsonDiff('{"a":1}', '{ "a": 1 }');

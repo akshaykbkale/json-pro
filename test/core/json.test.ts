@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseJsonText, validateJsonText, formatJsonText, minifyJsonText, sortKeysJsonText, JsonParseError } from '../src/core/json';
+import { parseJsonText, validateJsonText, formatJsonText, minifyJsonText, sortKeysJsonText, JsonParseError } from '../../src/core/json';
 
 test('parseJsonText tolerates comments and trailing commas by default', () => {
   assert.deepEqual(parseJsonText('{ "a": 1, /* c */ "b": [1, 2,], } // end'), { a: 1, b: [1, 2] });

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { queryValue, evaluateFilter } from '../src/core/jsonPath';
+import { queryValue, evaluateFilter } from '../../src/core/jsonPath';
 
 const doc = {
   users: [
