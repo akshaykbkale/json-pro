@@ -18,7 +18,7 @@ import { registerHoverProvider } from './hoverProvider';
 import { registerBreadcrumb } from './breadcrumb';
 import { registerDuplicateKeyDetector } from './duplicateKeys';
 import { openWelcomePanel, showWelcomeOnFirstInstall } from './welcomePanel';
-import { getEol, getIndent, isJsonDocument, replaceDocumentText, reportError, statusMessage } from './editorUtils';
+import { getEol, getIndent, isJsonDocument, isLargeDocument, replaceDocumentText, reportError, statusMessage } from './editorUtils';
 import { getOutputChannel } from './outputChannel';
 
 const output = getOutputChannel();
@@ -38,10 +38,9 @@ export function activate(context: vscode.ExtensionContext): void {
   registerDuplicateKeyDetector(context);
 
   // ── Context key so menus / views only show for JSON editors ────────────────
-  const updateContext = (editor: vscode.TextEditor | undefined): void => {
-    void vscode.commands.executeCommand('setContext', 'jsonPro.isJsonEditor', !!editor && isJsonDocument(editor.document));
-  };
-  updateContext(vscode.window.activeTextEditor);
+  const updateContext = (editor: vscode.TextEditor | undefined): Thenable<unknown> =>
+    vscode.commands.executeCommand('setContext', 'jsonPro.isJsonEditor', !!editor && isJsonDocument(editor.document));
+  void updateContext(vscode.window.activeTextEditor);
 
   // ── Tree view ───────────────────────────────────────────────────────────────
   const treeProvider = new JsonTreeProvider();
@@ -58,9 +57,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(editor => {
-      updateContext(editor);
       treeProvider.refresh();
-      revealTree(editor);
+      // The view's `when` clause depends on the context key, so set it before revealing.
+      void updateContext(editor).then(() => revealTree(editor), () => revealTree(editor));
     }),
     vscode.workspace.onDidChangeTextDocument(e => {
       if (e.document === vscode.window.activeTextEditor?.document) treeProvider.scheduleRefresh();
@@ -72,7 +71,9 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onWillSaveTextDocument(event => {
       const doc = event.document;
-      if (!isJsonDocument(doc)) return;
+      // Only explicit saves: auto-save (afterDelay / focus change) would rewrite the buffer mid-typing.
+      if (event.reason !== vscode.TextDocumentSaveReason.Manual) return;
+      if (!isJsonDocument(doc) || isLargeDocument(doc)) return;
       if (!vscode.workspace.getConfiguration('jsonPro', doc).get<boolean>('autoFixOnSave', false)) return;
       const edits = fixOnSaveEdits(doc);
       if (edits.length === 0) return;

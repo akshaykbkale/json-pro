@@ -1,5 +1,4 @@
 import {
-  parse as jsoncParse,
   parseTree,
   format,
   applyEdits,
@@ -44,10 +43,14 @@ export function parseJsonText(text: string, options: JsonOptions = LENIENT): unk
     const p = problems[0];
     throw new JsonParseError(p.message, p.offset, p.length);
   }
-  return jsoncParse(text, undefined, {
-    allowTrailingComma: options.allowTrailingComma ?? true,
-    disallowComments: !(options.allowComments ?? true),
-  });
+  // JSON.parse (unlike jsonc-parser's parse) creates an own "__proto__" property instead of
+  // assigning the prototype, so such keys round-trip instead of silently vanishing.
+  return JSON.parse(minifyTokens(text));
+}
+
+/** Define an own, enumerable property — safe for keys such as "__proto__". */
+export function setOwn(target: object, key: string | number, value: unknown): void {
+  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
 }
 
 /** Validate JSON text and return every problem found (empty array when valid). */
@@ -161,7 +164,11 @@ export function formatJsonText(text: string, indent: Indent = 2, eol = '\n'): st
 export function minifyJsonText(text: string): string {
   const problems = validateJsonText(text, LENIENT);
   if (problems.length > 0) throw new JsonParseError(problems[0].message, problems[0].offset, problems[0].length);
+  return minifyTokens(text);
+}
 
+/** Re-emit every non-trivia token, skipping comments, whitespace and trailing commas. Assumes valid input. */
+function minifyTokens(text: string): string {
   const scanner = createScanner(text, /* ignoreTrivia */ true);
   const out: string[] = [];
   let pendingComma = false;
@@ -186,7 +193,7 @@ export function sortValue(value: unknown): unknown {
   if (value !== null && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
     const sorted: Record<string, unknown> = {};
-    for (const key of Object.keys(obj).sort()) sorted[key] = sortValue(obj[key]);
+    for (const key of Object.keys(obj).sort()) setOwn(sorted, key, sortValue(obj[key]));
     return sorted;
   }
   return value;

@@ -1,4 +1,4 @@
-const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+import { setOwn } from './json';
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -17,7 +17,7 @@ export function flattenValue(value: unknown, prefix = ''): Record<string, unknow
     } else if (isPlainObject(v) && Object.keys(v).length > 0) {
       for (const [k, child] of Object.entries(v)) visit(child, key ? `${key}.${k}` : k);
     } else if (key) {
-      result[key] = v;
+      setOwn(result, key, v);
     }
   };
   visit(value, prefix);
@@ -50,7 +50,6 @@ export function parseDotPath(path: string): (string | number)[] {
     if (m[1] !== undefined) key = parseInt(m[1], 10);
     else if (m[2] !== undefined) key = JSON.parse(`"${m[2]}"`) as string;
     else key = m[3];
-    if (typeof key === 'string' && FORBIDDEN_KEYS.has(key)) throw new Error(`Forbidden key in path: "${key}"`);
     segments.push(key);
   }
   return segments;
@@ -62,13 +61,13 @@ function setNestedValue(target: Record<string, unknown> | unknown[], segments: (
     const seg = segments[i];
     const nextIsIndex = typeof segments[i + 1] === 'number';
     const container = current as Record<string | number, unknown>;
-    const existing = container[seg];
+    const existing = Object.prototype.hasOwnProperty.call(container, seg) ? container[seg] : undefined;
     if (existing === undefined || existing === null || typeof existing !== 'object') {
-      container[seg] = nextIsIndex ? [] : {};
+      setOwn(container, seg, nextIsIndex ? [] : {});
     }
-    current = container[seg] as Record<string, unknown> | unknown[];
+    current = (container as Record<string | number, unknown>)[seg] as Record<string, unknown> | unknown[];
   }
-  (current as Record<string | number, unknown>)[segments[segments.length - 1]] = value;
+  setOwn(current, segments[segments.length - 1], value);
 }
 
 // ── Remove empty ──────────────────────────────────────────────────────────────
@@ -89,7 +88,7 @@ function strip(value: unknown): unknown {
     const result: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
       const c = strip(v);
-      if (c !== undefined) result[k] = c;
+      if (c !== undefined) setOwn(result, k, c);
     }
     return Object.keys(result).length === 0 ? undefined : result;
   }
@@ -107,7 +106,7 @@ export function renameKey(value: unknown, oldKey: string, newKey: string): { res
       const out: Record<string, unknown> = {};
       for (const [k, child] of Object.entries(v)) {
         if (k === oldKey) count++;
-        out[k === oldKey ? newKey : k] = visit(child);
+        setOwn(out, k === oldKey ? newKey : k, visit(child));
       }
       return out;
     }

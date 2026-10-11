@@ -12,7 +12,7 @@ test('flatten/unflatten round-trips nested data including empty containers', () 
 test('unflatten builds a root array when every key starts with an index', () => {
   assert.deepEqual(unflattenValue({ '[0].a': 1, '[1].a': 2 }), [{ a: 1 }, { a: 2 }]);
   assert.throws(() => unflattenValue([1]), /flat JSON object/);
-  assert.throws(() => unflattenValue({ '__proto__.x': 1 }), /Forbidden/);
+  assert.equal(JSON.stringify(unflattenValue({ '__proto__.x': 1, 'constructor': 2 })), '{"__proto__":{"x":1},"constructor":2}');
 });
 
 test('parseDotPath understands quoted segments', () => {
@@ -24,6 +24,13 @@ test('removeEmpty strips nulls, empty strings and empty containers everywhere', 
     { g: [{ h: 1 }], i: 0, j: false });
   assert.deepEqual(removeEmpty({ a: null }), {});
   assert.deepEqual(removeEmpty([null]), []);
+});
+
+test('special keys round-trip through flatten, removeEmpty and renameKey', () => {
+  const doc = JSON.parse('{"__proto__": {"a": 1}, "constructor": "x"}');
+  assert.equal(JSON.stringify(flattenValue(doc)), '{"__proto__.a":1,"constructor":"x"}');
+  assert.equal(JSON.stringify(removeEmpty(doc)), '{"__proto__":{"a":1},"constructor":"x"}');
+  assert.equal(JSON.stringify(renameKey({ a: { x: 1 } }, 'a', '__proto__').result), '{"__proto__":{"x":1}}');
 });
 
 test('renameKey renames at every depth and counts renames', () => {

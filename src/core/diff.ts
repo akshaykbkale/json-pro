@@ -1,3 +1,5 @@
+import { parseJsonText } from './json';
+
 export interface DiffLine {
   type: 'equal' | 'added' | 'removed' | 'changed';
   leftLine: string;
@@ -28,12 +30,12 @@ export function computeJsonDiff(leftText: string, rightText: string, indent: num
   let leftFormatted: string;
   let rightFormatted: string;
   try {
-    leftFormatted = JSON.stringify(JSON.parse(leftText), null, indent);
+    leftFormatted = JSON.stringify(parseJsonText(leftText), null, indent);
   } catch (e) {
     return { type: 'error', side: 'left', message: e instanceof Error ? e.message : String(e) };
   }
   try {
-    rightFormatted = JSON.stringify(JSON.parse(rightText), null, indent);
+    rightFormatted = JSON.stringify(parseJsonText(rightText), null, indent);
   } catch (e) {
     return { type: 'error', side: 'right', message: e instanceof Error ? e.message : String(e) };
   }
@@ -78,23 +80,25 @@ export function lineDiff(leftLines: string[], rightLines: string[]): DiffLine[] 
       (ops[idx].type === 'removed' ? removed : added).push(ops[idx]);
       idx++;
     }
-    // Pair removed/added lines that share the same JSON key as 'changed'
+    // Pair removed/added lines that share the same JSON key as 'changed' (linear via a key index)
+    const addedByKey = new Map<string, number[]>();
+    added.forEach((op, a) => {
+      const key = extractJsonKey(rightLines[op.ri]);
+      if (key === null) return;
+      const list = addedByKey.get(key);
+      if (list) list.push(a); else addedByKey.set(key, [a]);
+    });
     const usedAdded = new Set<number>();
     const pairedRemoved = new Set<number>();
     for (let r = 0; r < removed.length; r++) {
       const lLine = leftLines[removed[r].li];
       const lKey = extractJsonKey(lLine);
       if (lKey === null) continue;
-      for (let a = 0; a < added.length; a++) {
-        if (usedAdded.has(a)) continue;
-        const rLine = rightLines[added[a].ri];
-        if (extractJsonKey(rLine) === lKey) {
-          result.push({ type: 'changed', leftLine: lLine, rightLine: rLine, leftNum: removed[r].li + 1, rightNum: added[a].ri + 1 });
-          pairedRemoved.add(r);
-          usedAdded.add(a);
-          break;
-        }
-      }
+      const a = addedByKey.get(lKey)?.shift();
+      if (a === undefined) continue;
+      result.push({ type: 'changed', leftLine: lLine, rightLine: rightLines[added[a].ri], leftNum: removed[r].li + 1, rightNum: added[a].ri + 1 });
+      pairedRemoved.add(r);
+      usedAdded.add(a);
     }
     for (let r = 0; r < removed.length; r++) {
       if (pairedRemoved.has(r)) continue;

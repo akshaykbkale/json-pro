@@ -36,6 +36,21 @@ test('lineDiff handles pure insertions, deletions and empty inputs', () => {
   assert.deepEqual(lineDiff(['a', 'b', 'c'], ['a', 'x', 'c'])!.map(l => l.type), ['equal', 'removed', 'added', 'equal']);
 });
 
+test('key pairing is linear: two large objects with no keys in common', () => {
+  const left = JSON.stringify(Object.fromEntries(Array.from({ length: 4000 }, (_, i) => [`l${i}`, i])));
+  const right = JSON.stringify(Object.fromEntries(Array.from({ length: 4000 }, (_, i) => [`r${i}`, i])));
+  const start = Date.now();
+  const r = computeJsonDiff(left, right);
+  assert.ok(Date.now() - start < 1500, `took ${Date.now() - start} ms`);
+  assert.equal(r.type, 'success');
+  if (r.type === 'success') assert.equal(r.summary.changed, 0);
+});
+
+test('JSONC input is accepted', () => {
+  const r = computeJsonDiff('{"a":1, // c\n}', '{"a":1,}');
+  assert.equal(r.type, 'success');
+});
+
 test('large mostly-identical documents diff quickly thanks to prefix/suffix trimming', () => {
   const left = Array.from({ length: 200_000 }, (_, i) => `line ${i}`);
   const right = [...left];

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { computeMerge, ArrayStrategy } from './core/merge';
-import { generateNonce, getIndent, pickJsonFile, replaceDocumentText, resolveDocument, statusMessage } from './editorUtils';
+import { generateNonce, getIndent, isJsonDocument, pickJsonFile, replaceDocumentText, resolveDocument, statusMessage } from './editorUtils';
 
 /** Open the merge panel with the given editor's document as the left side and apply target. */
 export function openMergePanel(context: vscode.ExtensionContext, editor: vscode.TextEditor | undefined): void {
@@ -12,12 +12,13 @@ export function openMergePanel(context: vscode.ExtensionContext, editor: vscode.
     { enableScripts: true, retainContextWhenHidden: true }
   );
 
-  const sourceUri = editor?.document.uri;
+  const source = editor && isJsonDocument(editor.document) ? editor.document : undefined;
+  const sourceUri = source?.uri;
   const sourceName = sourceUri ? vscode.workspace.asRelativePath(sourceUri) : undefined;
-  const indent = getIndent(editor?.document);
+  const indent = getIndent(source);
 
   panel.webview.html = getHtml(nonce, sourceName);
-  void panel.webview.postMessage({ command: 'init', json: editor?.document.getText() ?? '' });
+  void panel.webview.postMessage({ command: 'init', json: source?.getText() ?? '' });
 
   const sub = panel.webview.onDidReceiveMessage(
     async (msg: { command: string; left?: string; right?: string; merged?: string; arrays?: ArrayStrategy }) => {

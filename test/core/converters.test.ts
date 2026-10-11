@@ -78,6 +78,7 @@ test('YAML: objects, arrays, quoting and block scalars', () => {
     '',
   ].join('\n'));
   assert.equal(needsYamlQuoting('~'), true);
+  assert.equal(needsYamlQuoting('<<'), true);
   assert.equal(needsYamlQuoting('plain text'), false);
 });
 

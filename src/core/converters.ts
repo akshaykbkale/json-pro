@@ -149,7 +149,7 @@ function serializeYaml(value: unknown, depth: number): string {
 }
 
 export function needsYamlQuoting(s: string): boolean {
-  if (s === '') return true;
+  if (s === '' || s === '<<') return true;
   if (/^(true|false|null|yes|no|on|off|~)$/i.test(s)) return true;
   if (/^[\d+\-.]/.test(s)) return true;
   if (/^(0x|0o|0b)/i.test(s)) return true;
