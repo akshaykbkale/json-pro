@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fixJsonText } from '../src/core/fixer';
+import { fixJsonText } from '../../src/core/fixer';
 
 const fix = (s: string): unknown => JSON.parse(fixJsonText(s));
 

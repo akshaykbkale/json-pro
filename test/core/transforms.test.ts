@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { flattenValue, unflattenValue, removeEmpty, renameKey, collectKeys, parseDotPath } from '../src/core/transforms';
+import { flattenValue, unflattenValue, removeEmpty, renameKey, collectKeys, parseDotPath } from '../../src/core/transforms';
 
 test('flatten/unflatten round-trips nested data including empty containers', () => {
   const doc = { a: { b: 1, c: [1, { d: 'x' }], e: {}, f: [] }, g: null };

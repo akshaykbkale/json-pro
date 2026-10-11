@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { deepMerge, computeMerge } from '../src/core/merge';
+import { deepMerge, computeMerge } from '../../src/core/merge';
 
 test('right overrides scalars, objects merge recursively, arrays concat by default', () => {
   assert.deepEqual(deepMerge({ a: 1, b: { c: 1, d: 2 }, e: [1] }, { a: 2, b: { c: 3 }, e: [2] }), { a: 2, b: { c: 3, d: 2 }, e: [1, 2] });

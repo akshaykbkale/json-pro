@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { jsonToTypeScript, jsonToYaml, escapeJsonString, unescapeJsonString, singularize, needsYamlQuoting } from '../src/core/converters';
+import { jsonToTypeScript, jsonToYaml, escapeJsonString, unescapeJsonString, singularize, needsYamlQuoting } from '../../src/core/converters';
 
 test('TypeScript: nested interfaces, array element naming, optional and union props', () => {
   const ts = jsonToTypeScript({
