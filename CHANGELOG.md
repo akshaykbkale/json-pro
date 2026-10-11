@@ -3,7 +3,7 @@
 All notable changes to the **JSON Pro** extension are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [1.1.0] — 2026-09-16
+## [2.0.0] — 2026-10-11
 
 ### Added
 - **JSONC support everywhere.** Commands, context menu, keyboard shortcuts and the tree view now work in `.jsonc` files and in files VS Code treats as JSONC (`settings.json`, `tsconfig.json`, …).
@@ -18,7 +18,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **TypeScript generator** merges objects that share a name: properties missing in some occurrences become optional and conflicting types become unions. Array element interfaces are singularised (`users` → `User`).
 - Setting `jsonPro.enableDiagnostics` to turn JSON Pro's own diagnostics off if you prefer VS Code's built-in validation.
 - Hover on ISO dates and timestamps also shows the Unix / ISO counterpart; long strings show their length.
-- Unit test suite (`npm test`) and GitHub Actions CI / release workflows.
+- Setting `jsonPro.largeFileThresholdKB` (default 4096). Live features — diagnostics, duplicate-key warnings, the tree view and the breadcrumb — are skipped above the threshold so multi-megabyte files never make the editor stutter. Explicit commands still work on any size.
+- The tree view builds nodes lazily as you expand them instead of materialising the whole document up front.
+- Unit tests for the core logic plus an end-to-end test suite that drives every command and provider against a simulated VS Code API (`npm test`), and GitHub Actions CI / release workflows.
 
 ### Fixed
 - **Buttons in the Diff, Merge, Welcome and JSONPath panels did nothing** because inline `onclick` handlers were blocked by the webview Content Security Policy.
@@ -42,7 +44,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Command failures show an error notification (with a "Run Auto-Fix" shortcut for syntax errors) instead of a status-bar message that was easy to miss.
 
 ### Changed
+- **Why 2.0:** Format output is no longer normalised through `JSON.stringify` (numbers such as `74.0` and comments are kept as written), commands and shortcuts now apply to JSONC files, and the Diff/Merge panels apply results to the file they were opened from rather than whichever editor is active. Review any scripts or habits that relied on the old behaviour.
 - Commands are listed under the **JSON Pro** category in the Command Palette.
+- Development tooling upgraded (`@vscode/vsce` 4, `esbuild` 0.28); packaging now needs Node 22. No vulnerable dependencies remain (`npm audit`). The shipped bundle has a single runtime dependency, `jsonc-parser`.
 - `repository`, `bugs`, `homepage` and `license` are declared in the manifest; packaging runs the build automatically (`vscode:prepublish`).
 - The extension declares support for untrusted and virtual workspaces.
 
@@ -51,5 +55,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 - Initial release: Format, Minify, Sort Keys, Auto-Fix with preview, Diff Checker, JSONPath Query, Merge, Stats dashboard, Flatten/Unflatten, Remove Nulls & Empty, Rename Key, TypeScript interface generation, YAML conversion, Escape/Unescape, Search, Copy Path, sidebar tree view, inline diagnostics, duplicate-key detection, hover decoding for Base64 / timestamps / ISO dates, breadcrumb status bar and a welcome page.
 
-[1.1.0]: https://github.com/akshaykbkale/json-pro/compare/v1.0.0...v1.1.0
+[2.0.0]: https://github.com/akshaykbkale/json-pro/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/akshaykbkale/json-pro/releases/tag/v1.0.0

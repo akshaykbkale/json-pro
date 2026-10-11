@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as jsoncParser from 'jsonc-parser';
 import { buildDotPath } from './core/path';
-import { isJsonDocument } from './editorUtils';
+import { isJsonDocument, isLargeDocument } from './editorUtils';
 
 export function registerBreadcrumb(context: vscode.ExtensionContext): void {
   const item = vscode.window.createStatusBarItem('jsonPro.breadcrumb', vscode.StatusBarAlignment.Left, 90);
@@ -12,7 +12,7 @@ export function registerBreadcrumb(context: vscode.ExtensionContext): void {
 
   const update = (): void => {
     const editor = vscode.window.activeTextEditor;
-    if (!editor || !isJsonDocument(editor.document)) { item.hide(); return; }
+    if (!editor || !isJsonDocument(editor.document) || isLargeDocument(editor.document)) { item.hide(); return; }
 
     const text = editor.document.getText();
     if (!text.trim()) { item.hide(); return; }

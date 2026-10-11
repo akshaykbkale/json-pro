@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as jsoncParser from 'jsonc-parser';
-import { DocumentDebouncer, isJsonDocument } from './editorUtils';
+import { DocumentDebouncer, isJsonDocument, isLargeDocument } from './editorUtils';
 
 const collection = vscode.languages.createDiagnosticCollection('jsonPro.duplicates');
 
@@ -29,6 +29,7 @@ export function registerDuplicateKeyDetector(context: vscode.ExtensionContext): 
 
 function scan(document: vscode.TextDocument): void {
   if (!isJsonDocument(document)) return;
+  if (isLargeDocument(document)) { collection.set(document.uri, []); return; }
 
   const text = document.getText();
   if (!text.trim()) { collection.set(document.uri, []); return; }

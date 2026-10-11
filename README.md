@@ -147,6 +147,7 @@ Open any `.json` or `.jsonc` file → **right-click** to see all JSON Pro comman
 | `jsonPro.autoFixOnSave` | `false` | Silently repair invalid JSON when saving (valid files are never modified) |
 | `jsonPro.showTreeOnOpen` | `true` | Reveal the tree view when a JSON file becomes active |
 | `jsonPro.enableDiagnostics` | `true` | Show JSON Pro's own syntax and duplicate-key diagnostics |
+| `jsonPro.largeFileThresholdKB` | `4096` | Skip live features (diagnostics, tree, breadcrumb) above this size; `0` = no limit |
 
 ---
 
@@ -230,18 +231,19 @@ Paste this into a `.json` file to explore every feature (or run **JSON Pro: Welc
 ```bash
 npm install
 npm run compile   # typecheck
-npm test          # unit tests for the core logic (node --test)
+npm test          # core unit tests + end-to-end tests against a simulated VS Code API
+npm run test:core # core unit tests only
 npm run build     # bundle to dist/extension.js
 npm run check     # all of the above
-npm run package   # build the .vsix
+npm run package   # build the .vsix (needs Node 22+)
 ```
 
-Press `F5` in VS Code to launch an Extension Development Host. Pure logic lives in `src/core/` (no `vscode` imports) and is covered by the tests in `test/`; the VS Code integration lives alongside in `src/`.
+Press `F5` in VS Code to launch an Extension Development Host. Pure logic lives in `src/core/` (no `vscode` imports) and is covered by `test/core/`. The VS Code integration in `src/` is exercised end-to-end by `test/extension.test.ts`, which activates the real extension against the simulated API in `test/helpers/vscodeStub.ts`. Launch the Extension Development Host (`F5`) for a final manual check in a real editor.
 
 ### Releasing
 
 1. Update `version` in `package.json` and add a section to `CHANGELOG.md`.
-2. Commit, then tag: `git tag v1.1.0 && git push --tags`.
+2. Commit, then tag: `git tag v2.0.0 && git push --tags`.
 3. The **Release** workflow builds the VSIX, attaches it to a GitHub Release and, if a `VSCE_PAT` repository secret is configured, publishes it to the Marketplace. Without the secret, publish manually with `npx vsce publish --packagePath json-pro-*.vsix`.
 
 ---

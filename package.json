@@ -2,105 +2,335 @@
   "name": "json-pro",
   "displayName": "JSON Pro",
   "description": "Complete JSON toolbox: formatter, minifier, auto-fixer, diff checker, JSONPath, search, key sorter, validator, TypeScript & YAML converters, and sidebar tree viewer. JSONC aware.",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "publisher": "AkshayKale",
   "license": "MIT",
-  "author": { "name": "Akshay Kale" },
-  "repository": { "type": "git", "url": "https://github.com/akshaykbkale/json-pro.git" },
-  "bugs": { "url": "https://github.com/akshaykbkale/json-pro/issues" },
+  "author": {
+    "name": "Akshay Kale"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/akshaykbkale/json-pro.git"
+  },
+  "bugs": {
+    "url": "https://github.com/akshaykbkale/json-pro/issues"
+  },
   "homepage": "https://github.com/akshaykbkale/json-pro#readme",
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Formatters", "Linters", "Other"],
-  "keywords": ["json", "jsonc", "formatter", "validator", "diff", "jsonpath", "linter", "typescript", "yaml"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Formatters",
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "json",
+    "jsonc",
+    "formatter",
+    "validator",
+    "diff",
+    "jsonpath",
+    "linter",
+    "typescript",
+    "yaml"
+  ],
   "icon": "images/icon.png",
-  "galleryBanner": { "color": "#1e1e1e", "theme": "dark" },
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "capabilities": {
-    "untrustedWorkspaces": { "supported": true },
+    "untrustedWorkspaces": {
+      "supported": true
+    },
     "virtualWorkspaces": true
   },
-  "activationEvents": ["onLanguage:json", "onLanguage:jsonc"],
+  "activationEvents": [
+    "onLanguage:json",
+    "onLanguage:jsonc"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
-      { "command": "jsonPro.format",       "title": "Format",                        "category": "JSON Pro" },
-      { "command": "jsonPro.minify",       "title": "Minify",                        "category": "JSON Pro" },
-      { "command": "jsonPro.fix",          "title": "Auto-Fix",                      "category": "JSON Pro" },
-      { "command": "jsonPro.diff",         "title": "Diff Checker",                  "category": "JSON Pro" },
-      { "command": "jsonPro.search",       "title": "Search Keys & Values",          "category": "JSON Pro" },
-      { "command": "jsonPro.sortKeys",     "title": "Sort Keys",                     "category": "JSON Pro" },
-      { "command": "jsonPro.copyPath",     "title": "Copy Path",                     "category": "JSON Pro" },
-      { "command": "jsonPro.copyJsonPath", "title": "Copy JSONPath",                 "category": "JSON Pro" },
-      { "command": "jsonPro.toTypeScript", "title": "Generate TypeScript Interfaces","category": "JSON Pro" },
-      { "command": "jsonPro.flatten",      "title": "Flatten JSON",                  "category": "JSON Pro" },
-      { "command": "jsonPro.unflatten",    "title": "Unflatten JSON",                "category": "JSON Pro" },
-      { "command": "jsonPro.jsonPath",     "title": "JSONPath Query",                "category": "JSON Pro" },
-      { "command": "jsonPro.merge",        "title": "Merge JSON",                    "category": "JSON Pro" },
-      { "command": "jsonPro.removeEmpty",  "title": "Remove Nulls & Empty",          "category": "JSON Pro" },
-      { "command": "jsonPro.toYAML",       "title": "Convert to YAML",               "category": "JSON Pro" },
-      { "command": "jsonPro.escapeJson",   "title": "Escape JSON String",            "category": "JSON Pro" },
-      { "command": "jsonPro.unescapeJson", "title": "Unescape JSON String",          "category": "JSON Pro" },
-      { "command": "jsonPro.stats",        "title": "Show Stats",                    "category": "JSON Pro" },
-      { "command": "jsonPro.renameKey",    "title": "Rename Key",                    "category": "JSON Pro" },
-      { "command": "jsonPro.welcome",      "title": "Welcome / Overview",            "category": "JSON Pro" }
+      {
+        "command": "jsonPro.format",
+        "title": "Format",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.minify",
+        "title": "Minify",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.fix",
+        "title": "Auto-Fix",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.diff",
+        "title": "Diff Checker",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.search",
+        "title": "Search Keys & Values",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.sortKeys",
+        "title": "Sort Keys",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.copyPath",
+        "title": "Copy Path",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.copyJsonPath",
+        "title": "Copy JSONPath",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.toTypeScript",
+        "title": "Generate TypeScript Interfaces",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.flatten",
+        "title": "Flatten JSON",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.unflatten",
+        "title": "Unflatten JSON",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.jsonPath",
+        "title": "JSONPath Query",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.merge",
+        "title": "Merge JSON",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.removeEmpty",
+        "title": "Remove Nulls & Empty",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.toYAML",
+        "title": "Convert to YAML",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.escapeJson",
+        "title": "Escape JSON String",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.unescapeJson",
+        "title": "Unescape JSON String",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.stats",
+        "title": "Show Stats",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.renameKey",
+        "title": "Rename Key",
+        "category": "JSON Pro"
+      },
+      {
+        "command": "jsonPro.welcome",
+        "title": "Welcome / Overview",
+        "category": "JSON Pro"
+      }
     ],
     "keybindings": [
-      { "command": "jsonPro.format",   "key": "shift+alt+f", "when": "editorTextFocus && editorLangId =~ /^jsonc?$/" },
-      { "command": "jsonPro.minify",   "key": "shift+alt+m", "when": "editorTextFocus && editorLangId =~ /^jsonc?$/" },
-      { "command": "jsonPro.fix",      "key": "shift+alt+x", "when": "editorTextFocus && editorLangId =~ /^jsonc?$/" },
-      { "command": "jsonPro.stats",    "key": "shift+alt+s", "when": "editorTextFocus && editorLangId =~ /^jsonc?$/" },
-      { "command": "jsonPro.jsonPath", "key": "shift+alt+q", "when": "editorTextFocus && editorLangId =~ /^jsonc?$/" }
+      {
+        "command": "jsonPro.format",
+        "key": "shift+alt+f",
+        "when": "editorTextFocus && editorLangId =~ /^jsonc?$/"
+      },
+      {
+        "command": "jsonPro.minify",
+        "key": "shift+alt+m",
+        "when": "editorTextFocus && editorLangId =~ /^jsonc?$/"
+      },
+      {
+        "command": "jsonPro.fix",
+        "key": "shift+alt+x",
+        "when": "editorTextFocus && editorLangId =~ /^jsonc?$/"
+      },
+      {
+        "command": "jsonPro.stats",
+        "key": "shift+alt+s",
+        "when": "editorTextFocus && editorLangId =~ /^jsonc?$/"
+      },
+      {
+        "command": "jsonPro.jsonPath",
+        "key": "shift+alt+q",
+        "when": "editorTextFocus && editorLangId =~ /^jsonc?$/"
+      }
     ],
     "menus": {
       "editor/context": [
-        { "command": "jsonPro.format",       "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_1@1" },
-        { "command": "jsonPro.minify",       "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_1@2" },
-        { "command": "jsonPro.sortKeys",     "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_1@3" },
-        { "command": "jsonPro.fix",          "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_2@1" },
-        { "command": "jsonPro.flatten",      "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_2@2" },
-        { "command": "jsonPro.unflatten",    "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_2@3" },
-        { "command": "jsonPro.removeEmpty",  "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_2@4" },
-        { "command": "jsonPro.renameKey",    "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_2@5" },
-        { "command": "jsonPro.diff",         "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_3@1" },
-        { "command": "jsonPro.merge",        "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_3@2" },
-        { "command": "jsonPro.jsonPath",     "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_3@3" },
-        { "command": "jsonPro.stats",        "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_3@4" },
-        { "command": "jsonPro.toTypeScript", "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_4@1" },
-        { "command": "jsonPro.toYAML",       "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_4@2" },
-        { "command": "jsonPro.escapeJson",   "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_4@3" },
-        { "command": "jsonPro.unescapeJson", "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_4@4" },
-        { "command": "jsonPro.search",       "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_5@1" },
-        { "command": "jsonPro.copyPath",     "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_5@2" },
-        { "command": "jsonPro.copyJsonPath", "when": "editorLangId =~ /^jsonc?$/", "group": "jsonPro_5@3" }
+        {
+          "command": "jsonPro.format",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_1@1"
+        },
+        {
+          "command": "jsonPro.minify",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_1@2"
+        },
+        {
+          "command": "jsonPro.sortKeys",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_1@3"
+        },
+        {
+          "command": "jsonPro.fix",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_2@1"
+        },
+        {
+          "command": "jsonPro.flatten",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_2@2"
+        },
+        {
+          "command": "jsonPro.unflatten",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_2@3"
+        },
+        {
+          "command": "jsonPro.removeEmpty",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_2@4"
+        },
+        {
+          "command": "jsonPro.renameKey",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_2@5"
+        },
+        {
+          "command": "jsonPro.diff",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_3@1"
+        },
+        {
+          "command": "jsonPro.merge",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_3@2"
+        },
+        {
+          "command": "jsonPro.jsonPath",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_3@3"
+        },
+        {
+          "command": "jsonPro.stats",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_3@4"
+        },
+        {
+          "command": "jsonPro.toTypeScript",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_4@1"
+        },
+        {
+          "command": "jsonPro.toYAML",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_4@2"
+        },
+        {
+          "command": "jsonPro.escapeJson",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_4@3"
+        },
+        {
+          "command": "jsonPro.unescapeJson",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_4@4"
+        },
+        {
+          "command": "jsonPro.search",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_5@1"
+        },
+        {
+          "command": "jsonPro.copyPath",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_5@2"
+        },
+        {
+          "command": "jsonPro.copyJsonPath",
+          "when": "editorLangId =~ /^jsonc?$/",
+          "group": "jsonPro_5@3"
+        }
       ]
     },
     "configuration": {
       "title": "JSON Pro",
       "properties": {
         "jsonPro.indentSize": {
-          "type": "number", "default": 2, "enum": [2, 4], "scope": "language-overridable",
+          "type": "number",
+          "default": 2,
+          "enum": [
+            2,
+            4
+          ],
+          "scope": "language-overridable",
           "description": "Spaces per indent level used by Format, Sort Keys and the transform commands."
         },
         "jsonPro.useTabs": {
-          "type": "boolean", "default": false, "scope": "language-overridable",
+          "type": "boolean",
+          "default": false,
+          "scope": "language-overridable",
           "description": "Use tabs instead of spaces for indentation."
         },
         "jsonPro.autoFixOnSave": {
-          "type": "boolean", "default": false, "scope": "language-overridable",
+          "type": "boolean",
+          "default": false,
+          "scope": "language-overridable",
           "description": "Silently repair invalid JSON (comments, trailing commas, single quotes, unquoted keys…) when a file is saved. Valid files are never modified."
         },
         "jsonPro.showTreeOnOpen": {
-          "type": "boolean", "default": true,
+          "type": "boolean",
+          "default": true,
           "description": "Reveal the JSON Pro tree view in the Explorer when a JSON file becomes active (without stealing focus)."
         },
+        "jsonPro.largeFileThresholdKB": {
+          "type": "number",
+          "default": 4096,
+          "minimum": 0,
+          "scope": "language-overridable",
+          "description": "Live features (diagnostics, duplicate-key warnings, tree view, breadcrumb) are skipped for files larger than this many KB so huge files never slow the editor. 0 disables the limit. Explicit commands always work."
+        },
         "jsonPro.enableDiagnostics": {
-          "type": "boolean", "default": true,
+          "type": "boolean",
+          "default": true,
           "description": "Show JSON Pro's own syntax-error and duplicate-key diagnostics. Disable if you prefer only VS Code's built-in JSON validation."
         }
       }
     },
     "views": {
       "explorer": [
-        { "id": "jsonProTree", "name": "JSON Pro", "when": "jsonPro.isJsonEditor" }
+        {
+          "id": "jsonProTree",
+          "name": "JSON Pro",
+          "when": "jsonPro.isJsonEditor"
+        }
       ]
     }
   },
@@ -109,7 +339,8 @@
     "compile": "tsc --noEmit",
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "test": "tsc -p tsconfig.test.json && node --test \"out/test/*.test.js\"",
+    "test": "tsc -p tsconfig.test.json && node --test \"out/test/**/*.test.js\"",
+    "test:core": "tsc -p tsconfig.test.json && node --test \"out/test/core/*.test.js\"",
     "check": "npm run compile && npm test && npm run build",
     "package": "vsce package",
     "publish": "vsce publish"
@@ -118,10 +349,10 @@
     "jsonc-parser": "^3.2.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
+    "@types/node": "^20.19.43",
     "@types/vscode": "^1.85.0",
-    "@vscode/vsce": "^2.24.0",
-    "esbuild": "^0.20.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.3.0"
   }
 }

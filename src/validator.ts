@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { validateJsonText } from './core/json';
-import { DocumentDebouncer, isJsonDocument, validationOptionsFor } from './editorUtils';
+import { DocumentDebouncer, isJsonDocument, isLargeDocument, validationOptionsFor } from './editorUtils';
 
 const diagnostics = vscode.languages.createDiagnosticCollection('jsonPro');
 
@@ -30,6 +30,10 @@ export function registerValidator(context: vscode.ExtensionContext): void {
 function validateDocument(document: vscode.TextDocument): void {
   if (!isJsonDocument(document)) return;
 
+  if (isLargeDocument(document)) {
+    diagnostics.set(document.uri, []);
+    return;
+  }
   const text = document.getText();
   if (text.trim().length === 0) {
     diagnostics.set(document.uri, []);

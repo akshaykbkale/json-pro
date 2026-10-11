@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as jsoncParser from 'jsonc-parser';
-import { isJsonDocument } from './editorUtils';
+import { isJsonDocument, isLargeDocument } from './editorUtils';
 
 const PREVIEW_MAX = 60;
 
@@ -10,7 +10,7 @@ export class JsonTreeProvider implements vscode.TreeDataProvider<JsonTreeItem> {
 
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private rootNodes: JsonTreeItem[] = [];
-  /** Set when the current document could not be parsed (shown as the view message). */
+  /** Set when no tree can be shown for the current document (shown as the view message). */
   message: string | undefined;
 
   constructor() {
@@ -18,7 +18,7 @@ export class JsonTreeProvider implements vscode.TreeDataProvider<JsonTreeItem> {
   }
 
   refresh(): void {
-    this.rootNodes = this.buildTree();
+    this.rootNodes = this.buildRoots();
     this._onDidChangeTreeData.fire();
   }
 
@@ -48,12 +48,16 @@ export class JsonTreeProvider implements vscode.TreeDataProvider<JsonTreeItem> {
     return this.rootNodes;
   }
 
-  private buildTree(): JsonTreeItem[] {
+  private buildRoots(): JsonTreeItem[] {
     this.message = undefined;
     const editor = vscode.window.activeTextEditor;
     if (!editor || !isJsonDocument(editor.document)) return [];
 
     const doc = editor.document;
+    if (isLargeDocument(doc)) {
+      this.message = 'File is too large for the tree view (see jsonPro.largeFileThresholdKB)';
+      return [];
+    }
     const text = doc.getText();
     if (text.trim().length === 0) return [];
 
@@ -63,59 +67,48 @@ export class JsonTreeProvider implements vscode.TreeDataProvider<JsonTreeItem> {
       this.message = 'Document has syntax errors — tree unavailable';
       return [];
     }
-    return buildItems(root, doc, undefined);
+    return buildChildren(root, doc, undefined);
   }
 }
 
-function buildItems(node: jsoncParser.Node, doc: vscode.TextDocument, parent: JsonTreeItem | undefined): JsonTreeItem[] {
+/** Build the direct children of an object/array node. Grandchildren are built lazily on expand. */
+function buildChildren(node: jsoncParser.Node, doc: vscode.TextDocument, parent: JsonTreeItem | undefined): JsonTreeItem[] {
   if (node.type === 'object' && node.children) {
     return node.children.map(prop => {
       const keyNode = prop.children?.[0];
       const valueNode = prop.children?.[1];
       const key = keyNode ? String(jsoncParser.getNodeValue(keyNode)) : '?';
-      return buildItem(key, valueNode ?? keyNode, doc, parent);
+      return new JsonTreeItem(key, valueNode ?? keyNode, doc, parent);
     });
   }
   if (node.type === 'array' && node.children) {
-    return node.children.map((child, i) => buildItem(String(i), child, doc, parent));
+    return node.children.map((child, i) => new JsonTreeItem(String(i), child, doc, parent));
   }
   return [];
 }
 
-function buildItem(key: string, node: jsoncParser.Node | undefined, doc: vscode.TextDocument, parent: JsonTreeItem | undefined): JsonTreeItem {
-  if (!node) return new JsonTreeItem(key, 'null', false, doc, undefined, parent);
-
-  if (node.type === 'object') {
-    const count = node.children?.length ?? 0;
-    const item = new JsonTreeItem(key, `{${count}}`, count > 0, doc, node, parent);
-    item.children = buildItems(node, doc, item);
-    return item;
-  }
-  if (node.type === 'array') {
-    const count = node.children?.length ?? 0;
-    const item = new JsonTreeItem(key, `[${count}]`, count > 0, doc, node, parent);
-    item.children = buildItems(node, doc, item);
-    return item;
-  }
-
+function previewFor(node: jsoncParser.Node | undefined): string {
+  if (!node) return 'null';
+  const count = node.children?.length ?? 0;
+  if (node.type === 'object') return `{${count}}`;
+  if (node.type === 'array') return `[${count}]`;
   const value = jsoncParser.getNodeValue(node);
   const raw = typeof value === 'string' ? value : String(value);
   const clipped = raw.length > PREVIEW_MAX ? raw.slice(0, PREVIEW_MAX) + '…' : raw;
-  return new JsonTreeItem(key, typeof value === 'string' ? `"${clipped}"` : clipped, false, doc, node, parent);
+  return typeof value === 'string' ? `"${clipped}"` : clipped;
 }
 
 export class JsonTreeItem extends vscode.TreeItem {
-  children: JsonTreeItem[] = [];
+  private _children: JsonTreeItem[] | undefined;
 
   constructor(
     key: string,
-    preview: string,
-    hasChildren: boolean,
-    doc: vscode.TextDocument,
-    node: jsoncParser.Node | undefined,
+    private readonly node: jsoncParser.Node | undefined,
+    private readonly doc: vscode.TextDocument,
     readonly parent: JsonTreeItem | undefined
   ) {
-    super(key, hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+    super(key, hasChildren(node) ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+    const preview = previewFor(node);
     this.description = preview;
     this.tooltip = `${key}: ${preview}`;
     this.iconPath = iconFor(node);
@@ -123,6 +116,17 @@ export class JsonTreeItem extends vscode.TreeItem {
       this.command = { command: 'jsonPro.revealNode', title: 'Reveal in Editor', arguments: [doc, node] };
     }
   }
+
+  get children(): JsonTreeItem[] {
+    if (!this._children) {
+      this._children = this.node ? buildChildren(this.node, this.doc, this) : [];
+    }
+    return this._children;
+  }
+}
+
+function hasChildren(node: jsoncParser.Node | undefined): boolean {
+  return !!node && (node.type === 'object' || node.type === 'array') && (node.children?.length ?? 0) > 0;
 }
 
 function iconFor(node: jsoncParser.Node | undefined): vscode.ThemeIcon {

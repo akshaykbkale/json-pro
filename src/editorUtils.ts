@@ -12,6 +12,17 @@ export function validationOptionsFor(doc: vscode.TextDocument): Required<JsonOpt
   return { allowComments: lenient, allowTrailingComma: lenient };
 }
 
+/**
+ * Live features (diagnostics, tree view, breadcrumb) are skipped for documents above
+ * `jsonPro.largeFileThresholdKB` so very large files never make the editor stutter.
+ * Explicit commands still work on any size.
+ */
+export function isLargeDocument(doc: vscode.TextDocument): boolean {
+  const kb = vscode.workspace.getConfiguration('jsonPro', doc).get<number>('largeFileThresholdKB', 4096);
+  if (!kb || kb <= 0) return false;
+  return doc.getText().length > kb * 1024;
+}
+
 export function getIndent(doc?: vscode.TextDocument): Indent {
   const cfg = vscode.workspace.getConfiguration('jsonPro', doc);
   if (cfg.get<boolean>('useTabs')) return '\t';
