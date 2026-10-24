@@ -23,7 +23,7 @@
 ---
 
 ### ✦ Diff Checker
-Side-by-side diff panel with line numbers, color-coded changes, and navigation. Both sides are normalised before diffing, so pure formatting differences are ignored.
+Side-by-side diff panel with line numbers, color-coded changes, and navigation. Like every JSON Pro panel it uses a clean card-based design (inspired by shadcn/ui) that follows your VS Code theme. Both sides are normalised before diffing, so pure formatting differences are ignored.
 
 - **Green** rows = added in right · **Red** rows = removed from left · **Amber** rows = same key, different value — in your theme's own diff colours, with the changed characters highlighted inside the line
 - `+` / `−` / `~` gutter signs, hatched filler on the empty side, JSON syntax colouring, long lines wrap

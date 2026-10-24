@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { runJsonPathQuery, JsonPathMatch } from './core/jsonPath';
 import { generateNonce } from './editorUtils';
+import { escapeHtml, icon, renderPage } from './webview/ui';
 
 const MAX_RESULTS = 1000;
 /** Values longer than this (pretty-printed) are sent as a truncated preview; copy resolves the full value. */
@@ -74,79 +75,63 @@ function shrink(m: JsonPathMatch): { path: string; text: string; type: string; t
   return { path: m.path, text: truncated ? full.slice(0, MAX_VALUE_CHARS) + '\n… (truncated, copy value for the full text)' : full, type, truncated };
 }
 
-function getHtml(nonce: string, sourceName: string): string {
-  return /* html */`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>JSONPath Query</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
-    color: var(--vscode-foreground); background: var(--vscode-editor-background);
-    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
-  }
-  .header { padding: 14px 18px 10px; border-bottom: 1px solid var(--vscode-editorGroup-border, #333);
-            background: var(--vscode-editorGroupHeader-tabsBackground); flex-shrink: 0; }
-  .header h2 { font-size: 1em; font-weight: 600; margin-bottom: 10px; opacity: 0.9; display: flex; gap: 8px; align-items: baseline; }
-  .header h2 .src { font-weight: 400; opacity: 0.55; font-size: 0.85em; }
-  .query-input { width: 100%; padding: 7px 12px; border-radius: 4px; border: 1px solid var(--vscode-input-border, #555);
-                 background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-                 font-family: var(--vscode-editor-font-family); font-size: 0.95em; }
-  .query-input:focus { outline: 1px solid var(--vscode-focusBorder, #007acc); }
-  .hint { font-size: 0.78em; opacity: 0.5; margin-top: 6px; }
-  .hint code { cursor: pointer; text-decoration: underline dotted; }
-  .summary-bar { padding: 5px 18px; font-size: 0.8em; opacity: 0.7; background: var(--vscode-editorWidget-background, #252526);
-                 border-bottom: 1px solid var(--vscode-editorGroup-border, #333); flex-shrink: 0; min-height: 26px; }
-  .error-bar { color: var(--vscode-errorForeground, #e05252); }
-  .results { flex: 1; overflow-y: auto; }
-  .result-item { border-bottom: 1px solid var(--vscode-editorGroup-border, #2a2a2a); padding: 10px 18px; }
-  .result-item:hover { background: var(--vscode-list-hoverBackground, rgba(255,255,255,0.04)); }
-  .result-path { font-family: var(--vscode-editor-font-family); font-size: 0.8em; color: var(--vscode-symbolIcon-propertyForeground, #569cd6);
-                 margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }
-  .result-path .idx { opacity: 0.4; font-size: 0.85em; }
-  .result-value { font-family: var(--vscode-editor-font-family); font-size: 0.88em; white-space: pre-wrap; word-break: break-all;
-                  max-height: 200px; overflow-y: auto; padding: 6px 10px; border-radius: 3px;
-                  background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.2)); }
-  .actions { margin-left: auto; display: flex; gap: 4px; }
-  .copy-btn { padding: 2px 8px; font-size: 0.75em; cursor: pointer; border: 1px solid var(--vscode-button-border, #555);
-              border-radius: 3px; background: transparent; color: var(--vscode-foreground); opacity: 0.6; }
-  .copy-btn:hover { opacity: 1; }
-  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; opacity: 0.4; gap: 10px; font-size: 0.9em; }
-  .empty-icon { font-size: 2.5em; }
+const CSS = /* css */`
+  body { display: flex; flex-direction: column; overflow: hidden; }
+  .header { padding: 14px 16px 12px; border-bottom: 1px solid var(--border); background: var(--card); flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
+  .header .input { font-family: var(--font-mono); height: 34px; }
+  .hints { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .hints .label { font-size: var(--text-xs); color: var(--muted-foreground); margin-right: 2px; }
+  .hints .badge { font-family: var(--font-mono); font-weight: 500; }
+  .summary-bar { padding: 6px 16px; font-size: var(--text-xs); color: var(--muted-foreground); border-bottom: 1px solid var(--border); flex-shrink: 0; min-height: 29px; display: flex; align-items: center; gap: 8px; }
+  .summary-bar .alert { padding: 6px 10px; flex: 1; }
+  .results { flex: 1; overflow-y: auto; padding: 10px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .result-item { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); overflow: hidden; }
+  .result-path { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--border);
+                 font-family: var(--font-mono); font-size: var(--text-xs); color: var(--vscode-debugTokenExpression-name, #9cdcfe); }
+  .result-path .idx { color: var(--muted-foreground); font-family: var(--font-sans); min-width: 22px; }
+  .result-path .path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .result-value { font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre-wrap; word-break: break-all;
+                  max-height: 220px; overflow-y: auto; padding: 8px 12px; line-height: 1.5; }
   .t-string { color: var(--vscode-debugTokenExpression-string, #ce9178); }
   .t-number { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
   .t-boolean { color: var(--vscode-debugTokenExpression-boolean, #569cd6); }
-  .t-null { opacity: 0.6; }
-</style>
-</head>
-<body>
+  .t-null { color: var(--muted-foreground); }
+  .type-badge { font-family: var(--font-sans); }
+  .empty { height: 100%; }
+`;
+
+function getHtml(nonce: string, sourceName: string): string {
+  const hints: Array<[string, string, string]> = [
+    ['$.', '$.key', 'child'], ['$..', '$..key', 'recursive'], ['$[*]', '[*]', 'wildcard'], ['$[0]', '[0]', 'index'],
+    ['$[0:3]', '[0:3]', 'slice'], ["$[?(@.key == 'value')]", '[?(@.k == v)]', 'filter'], ['$[?(@.name =~ /^a/i)]', '=~ /re/', 'regex'],
+  ];
+  const body = /* html */`
 <div class="header">
-  <h2>⚡ JSONPath Query <span class="src" id="src"></span></h2>
-  <input class="query-input" id="pathInput" type="text"
-         placeholder="$.users[*].name  ·  $..email  ·  $.items[?(@.price > 10)]" autocomplete="off" spellcheck="false">
-  <div class="hint">
-    <code data-q="$.">$.key</code> &nbsp;·&nbsp; <code data-q="$..">$..key</code> recursive &nbsp;·&nbsp;
-    <code data-q="$[*]">[*]</code> wildcard &nbsp;·&nbsp; <code data-q="$[0]">[0]</code> index &nbsp;·&nbsp;
-    <code data-q="$[0:3]">[0:3]</code> slice &nbsp;·&nbsp; <code data-q="$[?(@.key == 'value')]">[?(@.k == v)]</code> filter &nbsp;·&nbsp;
-    <code data-q="$[?(@.name =~ /^a/i)]">=~ /regex/</code>
+  <div class="row">
+    <span class="toolbar-title">${icon('zap', 15)} JSONPath Query</span>
+    <span class="badge badge-muted truncate" title="Source document">${icon('fileJson', 12)} ${escapeHtml(sourceName)}</span>
+  </div>
+  <div class="input-icon">
+    ${icon('search', 15)}
+    <input class="input" id="pathInput" type="text" placeholder="$.users[*].name  ·  $..email  ·  $.items[?(@.price > 10)]" autocomplete="off" spellcheck="false">
+  </div>
+  <div class="hints"><span class="label">Try:</span>
+    ${hints.map(([q, label, title]) => `<span class="badge badge-outline clickable" data-q="${escapeHtml(q)}" title="${title}">${escapeHtml(label)}</span>`).join('')}
   </div>
 </div>
 <div class="summary-bar" id="summaryBar">Type a path above to query the JSON</div>
-<div class="results" id="results"></div>
+<div class="results" id="results"></div>`;
 
-<script nonce="${nonce}">
+  const script = /* js */`
   const vscode = acquireVsCodeApi();
   const input = document.getElementById('pathInput');
   const bar = document.getElementById('summaryBar');
   const list = document.getElementById('results');
+  const ICON_COPY = ${JSON.stringify(icon('copy', 12))};
+  const ICON_SEARCH = ${JSON.stringify(icon('search', 28))};
+  const ICON_ALERT = ${JSON.stringify(icon('alert', 14))};
   let results = [];
   let debounce = null;
-
-  document.getElementById('src').textContent = ${JSON.stringify(sourceName)};
 
   const state = vscode.getState();
   if (state && state.path) { input.value = state.path; sendQuery(); } else { showEmpty('Query your JSON with JSONPath expressions'); }
@@ -154,8 +139,7 @@ function getHtml(nonce: string, sourceName: string): string {
 
   input.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(sendQuery, 200); });
   input.addEventListener('keydown', e => { if (e.key === 'Enter') { clearTimeout(debounce); sendQuery(); } });
-
-  document.querySelectorAll('.hint code').forEach(el => el.addEventListener('click', () => {
+  document.querySelectorAll('.hints .badge').forEach(el => el.addEventListener('click', () => {
     input.value = el.dataset.q; input.focus(); sendQuery();
   }));
 
@@ -165,7 +149,7 @@ function getHtml(nonce: string, sourceName: string): string {
     const idx = Number(btn.dataset.idx);
     if (!results[idx]) return;
     vscode.postMessage({ command: 'copy', index: idx, what: btn.dataset.action === 'copyPath' ? 'path' : 'value' });
-    const old = btn.textContent; btn.textContent = 'copied'; setTimeout(() => { btn.textContent = old; }, 1200);
+    const old = btn.innerHTML; btn.textContent = 'copied'; setTimeout(() => { btn.innerHTML = old; }, 1200);
   });
 
   function sendQuery() {
@@ -179,8 +163,8 @@ function getHtml(nonce: string, sourceName: string): string {
 
   function render(data) {
     if (data.type === 'error') {
-      bar.innerHTML = '<span class="error-bar">⚠ ' + esc(data.error) + '</span>';
-      showEmpty(data.error, '⚠️');
+      bar.innerHTML = '<div class="alert alert-destructive">' + ICON_ALERT + '<div class="alert-description">' + esc(data.error) + '</div></div>';
+      showEmpty(data.error, true);
       return;
     }
     results = data.results || [];
@@ -189,18 +173,19 @@ function getHtml(nonce: string, sourceName: string): string {
       (data.total > results.length ? ' (showing first ' + results.length + ')' : '');
     list.innerHTML = results.map((r, i) =>
       '<div class="result-item">' +
-        '<div class="result-path"><span class="idx">#' + (i + 1) + '</span><span>' + esc(r.path) + '</span>' +
-        '<span class="actions"><button class="copy-btn" data-action="copyPath" data-idx="' + i + '">copy path</button>' +
-        '<button class="copy-btn" data-action="copyValue" data-idx="' + i + '">copy value</button></span></div>' +
+        '<div class="result-path"><span class="idx">' + (i + 1) + '</span><span class="path" title="' + esc(r.path) + '">' + esc(r.path) + '</span>' +
+        '<span class="badge badge-muted type-badge">' + esc(r.type) + '</span>' +
+        '<button class="btn btn-ghost btn-sm" data-action="copyPath" data-idx="' + i + '" title="Copy path">' + ICON_COPY + ' path</button>' +
+        '<button class="btn btn-ghost btn-sm" data-action="copyValue" data-idx="' + i + '" title="Copy value">' + ICON_COPY + ' value</button></div>' +
         '<div class="result-value t-' + r.type + '">' + esc(r.text) + '</div>' +
       '</div>').join('');
   }
 
-  function showEmpty(text, icon) {
-    list.innerHTML = '<div class="empty-state"><div class="empty-icon">' + (icon || '🔍') + '</div><div>' + esc(text) + '</div></div>';
+  function showEmpty(text, isError) {
+    list.innerHTML = '<div class="empty">' + (isError ? ICON_ALERT : ICON_SEARCH) + '<div>' + esc(text) + '</div></div>';
   }
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-</script>
-</body>
-</html>`;
+`;
+
+  return renderPage({ nonce, title: 'JSONPath Query', css: CSS, body, script });
 }
