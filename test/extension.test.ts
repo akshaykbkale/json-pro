@@ -404,6 +404,9 @@ test('diff panel compares, loads files and applies to the source document', asyn
   assert.equal(result.summary.added, 1);
   assert.ok(result.summary.changed >= 1);
   assert.equal(result.leftName, 'L');
+  assert.match(panel.html, /id="collapseToggle"/);
+  assert.match(panel.html, /<colgroup>/);
+  assert.match(panel.html, /id="hunk-pos"/);
 
   await panel.receive({ command: 'compare', left: '{', right: '{}' });
   assert.equal(panel.posted.at(-1)!.side, 'left');
