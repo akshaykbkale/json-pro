@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { computeMerge, ArrayStrategy } from './core/merge';
 import { generateNonce, getIndent, isJsonDocument, pickJsonFile, replaceDocumentText, resolveDocument, statusMessage } from './editorUtils';
+import { escapeHtml, icon, renderPage } from './webview/ui';
 
 /** Open the merge panel with the given editor's document as the left side and apply target. */
 export function openMergePanel(context: vscode.ExtensionContext, editor: vscode.TextEditor | undefined): void {
@@ -54,96 +55,75 @@ async function openInTab(content: string): Promise<void> {
   await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside);
 }
 
-function getHtml(nonce: string, sourceName: string | undefined): string {
-  return /* html */`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Merge JSON</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground);
-         background: var(--vscode-editor-background); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-  .toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: var(--vscode-editorGroupHeader-tabsBackground);
-             border-bottom: 1px solid var(--vscode-editorGroup-border, #333); flex-shrink: 0; flex-wrap: wrap; }
-  .toolbar-title { font-weight: 600; font-size: 0.9em; }
-  .spacer { flex: 1; }
-  label { font-size: 0.82em; opacity: 0.8; display: flex; align-items: center; gap: 6px; }
-  select { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground);
-           border: 1px solid var(--vscode-dropdown-border, #555); border-radius: 3px; padding: 3px 6px; font-size: 0.84em; }
-  button { padding: 5px 14px; cursor: pointer; border: none; border-radius: 3px; font-size: 0.84em; white-space: nowrap; }
-  .btn-primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-  .btn-primary:hover { background: var(--vscode-button-hoverBackground); }
-  .btn-secondary { background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-button-secondaryForeground, #ccc); }
-  .btn-secondary:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
-  .btn-small { padding: 2px 8px; font-size: 0.78em; margin-left: auto; }
-  .layout { display: flex; flex: 1; overflow: hidden; }
-  .col { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
-  .col + .col { border-left: 1px solid var(--vscode-editorGroup-border, #333); }
-  .col-header { padding: 6px 12px; font-size: 0.78em; font-weight: 600; opacity: 0.8; background: var(--vscode-editorGroupHeader-tabsBackground);
-                border-bottom: 1px solid var(--vscode-editorGroup-border, #333); flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
-  .col-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .col-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
-  textarea { flex: 1; resize: none; padding: 10px 12px; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size);
-             background: var(--vscode-editor-background); color: var(--vscode-editor-foreground); border: none; outline: none; }
-  textarea.error { background: rgba(224,82,82,0.06); }
-  .error-label { font-size: 0.78em; color: var(--vscode-errorForeground, #e05252); padding: 4px 12px; flex-shrink: 0; min-height: 20px; }
-  .result-code { flex: 1; overflow: auto; padding: 10px 12px; font-family: var(--vscode-editor-font-family);
-                 font-size: var(--vscode-editor-font-size); white-space: pre; color: var(--vscode-editor-foreground); }
-  .result-actions { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--vscode-editorGroup-border, #333); flex-shrink: 0; flex-wrap: wrap; }
-  .empty-result { flex: 1; display: flex; align-items: center; justify-content: center; opacity: 0.4; flex-direction: column; gap: 10px; font-size: 0.9em; }
+const CSS = /* css */`
+  body { display: flex; flex-direction: column; overflow: hidden; }
+  .layout { display: flex; gap: 12px; flex: 1; overflow: hidden; padding: 12px; }
+  .layout .card { flex: 1; min-height: 0; }
+  .layout .card-content { flex: 1; }
+  .layout .textarea { flex: 1; }
+  .dot-l { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .result-code { flex: 1; overflow: auto; font-family: var(--font-mono); font-size: var(--vscode-editor-font-size, 13px); white-space: pre;
+                 line-height: 1.5; padding: 10px 12px; border-radius: var(--radius); background: var(--muted); border: 1px solid var(--border); }
   .hidden { display: none !important; }
-</style>
-</head>
-<body>
+  .empty { flex: 1; }
+`;
+
+function getHtml(nonce: string, sourceName: string | undefined): string {
+  const body = /* html */`
 <div class="toolbar">
-  <span class="toolbar-title">🔀 Merge JSON</span>
+  <span class="toolbar-title">${icon('merge', 15)} Merge JSON</span>
+  <span class="text-xs muted">Right values override left on conflicts</span>
   <span class="spacer"></span>
-  <label>Arrays
-    <select id="arrays">
+  <label class="row text-xs muted" style="gap:6px">Arrays
+    <select class="select" id="arrays" style="width:170px">
       <option value="concat">concatenate</option>
       <option value="replace">right replaces left</option>
     </select>
   </label>
-  <button class="btn-primary" id="mergeBtn">⇒ Merge</button>
+  <button class="btn btn-default" id="mergeBtn">${icon('merge')} Merge</button>
 </div>
 <div class="layout">
-  <div class="col">
-    <div class="col-header"><span class="col-dot" style="background:#569cd6"></span>Left (base)${sourceName ? ` — ${escapeHtml(sourceName)}` : ''}</div>
-    <div class="col-body">
-      <textarea id="left" placeholder="Paste base JSON here..." spellcheck="false"></textarea>
-      <div id="left-error" class="error-label"></div>
+  <div class="card">
+    <div class="card-header row">
+      <div><div class="card-title"><span class="dot-l" style="background:var(--tok-key,#569cd6)"></span>Base</div>
+           <div class="card-description truncate">${sourceName ? escapeHtml(sourceName) : 'Left side'}</div></div>
+    </div>
+    <div class="card-content">
+      <textarea class="textarea mono" id="left" placeholder="Paste base JSON here…" spellcheck="false"></textarea>
+      <div id="left-error" class="field-error"></div>
     </div>
   </div>
-  <div class="col">
-    <div class="col-header"><span class="col-dot" style="background:#4ec9b0"></span>Right (overrides)
-      <button class="btn-secondary btn-small" id="pickRight">Load file…</button></div>
-    <div class="col-body">
-      <textarea id="right" placeholder="Paste JSON to merge in..." spellcheck="false"></textarea>
-      <div id="right-error" class="error-label"></div>
+  <div class="card">
+    <div class="card-header row">
+      <div><div class="card-title"><span class="dot-l" style="background:var(--success)"></span>Overrides</div><div class="card-description">Right side — wins on conflicts</div></div>
+      <button class="btn btn-outline btn-sm" id="pickRight">${icon('file')} Load file…</button>
+    </div>
+    <div class="card-content">
+      <textarea class="textarea mono" id="right" placeholder="Paste JSON to merge in…" spellcheck="false"></textarea>
+      <div id="right-error" class="field-error"></div>
     </div>
   </div>
-  <div class="col">
-    <div class="col-header"><span class="col-dot" style="background:#3fb950"></span>Merged Result</div>
-    <div class="col-body">
-      <div class="empty-result" id="empty">
-        <div style="font-size:2em">🔀</div>
+  <div class="card">
+    <div class="card-header row">
+      <div><div class="card-title">${icon('check')} Merged result</div><div class="card-description">Deep merge of both sides</div></div>
+    </div>
+    <div class="card-content">
+      <div class="empty" id="empty">
+        ${icon('merge', 28)}
         <div>Click <strong>Merge</strong> to see the result</div>
-        <div style="font-size:0.85em;opacity:0.6">Right values override left on conflicts</div>
+        <div class="text-xs"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> in either editor also merges</div>
       </div>
       <div class="result-code hidden" id="result-code"></div>
-      <div class="result-actions hidden" id="result-actions">
-        <button class="btn-primary" id="applyBtn"${sourceName ? '' : ' disabled title="No source document"'}>✓ Apply to ${sourceName ? escapeHtml(sourceName) : 'Editor'}</button>
-        <button class="btn-secondary" id="openBtn">Open in New Tab</button>
-        <button class="btn-secondary" id="copyBtn">Copy</button>
+      <div class="row hidden" id="result-actions">
+        <button class="btn btn-default btn-sm" id="applyBtn"${sourceName ? '' : ' disabled title="No source document"'}>${icon('check')} Apply to ${sourceName ? escapeHtml(sourceName) : 'editor'}</button>
+        <button class="btn btn-outline btn-sm" id="openBtn">${icon('external')} Open in new tab</button>
+        <button class="btn btn-ghost btn-sm btn-icon" id="copyBtn" title="Copy result">${icon('copy')}</button>
       </div>
     </div>
   </div>
-</div>
+</div>`;
 
-<script nonce="${nonce}">
+  const script = /* js */`
   const vscode = acquireVsCodeApi();
   let mergedText = '';
   const $ = id => document.getElementById(id);
@@ -162,7 +142,7 @@ function getHtml(nonce: string, sourceName: string | undefined): string {
     vscode.postMessage({ command: 'merge', left: $('left').value, right: $('right').value, arrays: $('arrays').value });
   }
   function clearErrors() {
-    ['left', 'right'].forEach(id => { $(id).classList.remove('error'); $(id + '-error').textContent = ''; });
+    ['left', 'right'].forEach(id => { $(id).classList.remove('invalid'); const e = $(id + '-error'); e.textContent = ''; e.classList.remove('show'); });
   }
 
   window.addEventListener('message', e => {
@@ -171,8 +151,8 @@ function getHtml(nonce: string, sourceName: string | undefined): string {
     if (msg.command === 'setRight') { $('right').value = msg.json || ''; return; }
     if (msg.command !== 'mergeResult') return;
     if (msg.type === 'error') {
-      $(msg.side).classList.add('error');
-      $(msg.side + '-error').textContent = '⚠ ' + msg.message;
+      $(msg.side).classList.add('invalid');
+      const el = $(msg.side + '-error'); el.textContent = msg.message; el.classList.add('show');
       return;
     }
     mergedText = msg.merged;
@@ -181,11 +161,7 @@ function getHtml(nonce: string, sourceName: string | undefined): string {
     $('result-code').classList.remove('hidden');
     $('result-actions').classList.remove('hidden');
   });
-</script>
-</body>
-</html>`;
-}
+`;
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return renderPage({ nonce, title: 'Merge JSON', css: CSS, body, script });
 }

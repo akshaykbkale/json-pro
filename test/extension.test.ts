@@ -336,7 +336,7 @@ test('stats panel renders without scripts', async () => {
   await run('jsonPro.stats');
   const panel = lastPanel();
   assert.equal(panel.viewType, 'jsonProStats');
-  assert.match(panel.html, /Total Keys[\s\S]*\$\.users/);
+  assert.match(panel.html, /Total keys[\s\S]*\$\.users/i);
   assert.ok(!panel.html.includes('<script'));
   assert.ok(!panel.html.includes('onclick='));
 

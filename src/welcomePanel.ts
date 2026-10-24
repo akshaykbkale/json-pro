@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { generateNonce } from './editorUtils';
+import { escapeHtml as esc, icon, renderPage } from './webview/ui';
 
 const WELCOME_KEY = 'jsonPro.welcomeShownVersion';
 
@@ -65,163 +66,142 @@ const SAMPLE = `{
 interface Feature { icon: string; name: string; desc: string; shortcut?: string; command?: string }
 
 const FEATURES: Feature[] = [
-  { icon: '✨', name: 'Format / Minify / Sort', desc: 'Prettify with configurable indent (comments preserved), collapse to one line, or sort all keys alphabetically.', shortcut: 'Shift+Alt+F · Shift+Alt+M', command: 'jsonPro.format' },
-  { icon: '🔧', name: 'Auto-Fix', desc: 'Repairs comments, single quotes, unquoted keys, trailing or missing commas, Python literals and unbalanced brackets. Preview before applying.', shortcut: 'Shift+Alt+X', command: 'jsonPro.fix' },
-  { icon: '⚡', name: 'JSONPath Query', desc: 'Live query panel — <code>$.users[*].name</code>, recursive descent, filters, slices, regex. Results update as you type and as you edit.', shortcut: 'Shift+Alt+Q', command: 'jsonPro.jsonPath' },
-  { icon: '📊', name: 'Stats Dashboard', desc: 'Key count, max depth, type distribution, size savings, largest arrays, deepest paths, longest strings.', shortcut: 'Shift+Alt+S', command: 'jsonPro.stats' },
-  { icon: '↔', name: 'Diff Checker', desc: 'Side-by-side diff with line numbers. Green = added, Red = removed, Amber = changed. Load files, navigate hunks, apply.', command: 'jsonPro.diff' },
-  { icon: '🔀', name: 'Merge JSON', desc: 'Deep-merge two JSON objects. Right values override left; arrays concatenate or replace.', command: 'jsonPro.merge' },
-  { icon: '🏷', name: 'TypeScript Interfaces', desc: 'Infers <code>export interface</code> definitions, with optional properties and union types where shapes differ.', command: 'jsonPro.toTypeScript' },
-  { icon: '🔄', name: 'Convert to YAML', desc: 'One-click conversion to YAML, opened in a new tab.', command: 'jsonPro.toYAML' },
-  { icon: '📐', name: 'Flatten / Unflatten', desc: '<code>{"a":{"b":1}}</code> ↔ <code>{"a.b": 1}</code> — round-trips nested and dot-notation structures.', command: 'jsonPro.flatten' },
-  { icon: '🧹', name: 'Remove Nulls & Empty', desc: 'Recursively strips <code>null</code>, <code>""</code>, <code>[]</code> and <code>{}</code> values.', command: 'jsonPro.removeEmpty' },
-  { icon: '✏️', name: 'Rename Key', desc: 'Pick any key and rename it everywhere it appears in the document.', command: 'jsonPro.renameKey' },
-  { icon: '🔍', name: 'Search', desc: 'Fuzzy-search keys and values; select a match to jump straight to it.', command: 'jsonPro.search' },
-  { icon: '📋', name: 'Copy Path', desc: 'Copies the dot-notation (or JSONPath) path of the value under the cursor.', command: 'jsonPro.copyPath' },
-  { icon: '🌳', name: 'Sidebar Tree View', desc: 'Live JSON tree in the Explorer panel. Click any node to jump to it.' },
-  { icon: '🔎', name: 'Hover Intelligence', desc: 'Hover to decode <strong>Base64</strong>, <strong>Unix timestamps</strong> and <strong>ISO 8601</strong> dates inline.' },
-  { icon: '⚠️', name: 'Diagnostics', desc: 'Precise error squiggles with human-readable messages, plus duplicate-key warnings. JSONC aware.' },
+  { icon: 'braces', name: 'Format / Minify / Sort', desc: 'Prettify with configurable indent (comments preserved), collapse to one line, or sort all keys alphabetically.', shortcut: 'Shift+Alt+F · Shift+Alt+M', command: 'jsonPro.format' },
+  { icon: 'wrench', name: 'Auto-Fix', desc: 'Repairs comments, single quotes, unquoted keys, trailing or missing commas, Python literals and unbalanced brackets. Preview before applying.', shortcut: 'Shift+Alt+X', command: 'jsonPro.fix' },
+  { icon: 'zap', name: 'JSONPath Query', desc: 'Live query panel — <code>$.users[*].name</code>, recursive descent, filters, slices, regex. Results update as you type and as you edit.', shortcut: 'Shift+Alt+Q', command: 'jsonPro.jsonPath' },
+  { icon: 'chart', name: 'Stats Dashboard', desc: 'Key count, max depth, type distribution, size savings, largest arrays, deepest paths, longest strings.', shortcut: 'Shift+Alt+S', command: 'jsonPro.stats' },
+  { icon: 'diff', name: 'Diff Checker', desc: 'Side-by-side diff with line numbers. Green = added, Red = removed, Amber = changed. Load files, navigate hunks, apply.', command: 'jsonPro.diff' },
+  { icon: 'merge', name: 'Merge JSON', desc: 'Deep-merge two JSON objects. Right values override left; arrays concatenate or replace.', command: 'jsonPro.merge' },
+  { icon: 'code', name: 'TypeScript Interfaces', desc: 'Infers <code>export interface</code> definitions, with optional properties and union types where shapes differ.', command: 'jsonPro.toTypeScript' },
+  { icon: 'file', name: 'Convert to YAML', desc: 'One-click conversion to YAML, opened in a new tab.', command: 'jsonPro.toYAML' },
+  { icon: 'layers', name: 'Flatten / Unflatten', desc: '<code>{"a":{"b":1}}</code> ↔ <code>{"a.b": 1}</code> — round-trips nested and dot-notation structures.', command: 'jsonPro.flatten' },
+  { icon: 'trash', name: 'Remove Nulls & Empty', desc: 'Recursively strips <code>null</code>, <code>""</code>, <code>[]</code> and <code>{}</code> values.', command: 'jsonPro.removeEmpty' },
+  { icon: 'pencil', name: 'Rename Key', desc: 'Pick any key and rename it everywhere it appears in the document.', command: 'jsonPro.renameKey' },
+  { icon: 'search', name: 'Search', desc: 'Fuzzy-search keys and values; select a match to jump straight to it.', command: 'jsonPro.search' },
+  { icon: 'copy', name: 'Copy Path', desc: 'Copies the dot-notation (or JSONPath) path of the value under the cursor.', command: 'jsonPro.copyPath' },
+  { icon: 'tree', name: 'Sidebar Tree View', desc: 'Live JSON tree in the Explorer panel. Click any node to jump to it.' },
+  { icon: 'eye', name: 'Hover Intelligence', desc: 'Hover to decode <strong>Base64</strong>, <strong>Unix timestamps</strong> and <strong>ISO 8601</strong> dates inline.' },
+  { icon: 'alert', name: 'Diagnostics', desc: 'Precise error squiggles with human-readable messages, plus duplicate-key warnings. JSONC aware.' },
 ];
 
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+const CSS = /* css */`
+  body { overflow-y: auto; }
+  .hero { padding: 40px 48px 28px; border-bottom: 1px solid var(--border); background: var(--card); }
+  .hero-inner { max-width: 960px; margin: 0 auto; display: flex; align-items: center; gap: 22px; }
+  .hero-logo { width: 56px; height: 56px; border-radius: 14px; background: var(--primary); color: var(--primary-foreground); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: var(--shadow); }
+  .hero-title { font-size: 1.9em; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }
+  .hero-sub { color: var(--muted-foreground); margin-top: 4px; }
+  .hero-badges { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+  .content { max-width: 960px; margin: 0 auto; padding: 32px 48px 60px; display: flex; flex-direction: column; gap: 36px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px; }
+  .feature .card-header { padding: 14px 16px 8px; }
+  .feature .card-title { font-size: 0.97em; }
+  .feature .card-title .icon { color: var(--primary); }
+  .feature .card-content { padding: 0 16px 14px; }
+  .feature .card-description { font-size: var(--text-sm); line-height: 1.5; }
+  .feature code { font-family: var(--font-mono); font-size: 0.9em; background: var(--muted); padding: 0 4px; border-radius: 3px; }
+  .feature .shortcut { margin-top: 2px; }
+  .kbd-table td:first-child { color: var(--muted-foreground); width: 40%; }
+  .sample-card .card-content { gap: 12px; }
+  .tips { display: flex; flex-direction: column; gap: 8px; }
+  .tips .alert strong { color: var(--foreground); font-weight: 600; }
+  .tips code { font-family: var(--font-mono); font-size: 0.9em; background: var(--muted); padding: 0 4px; border-radius: 3px; }
+  .footer { text-align: center; color: var(--muted-foreground); font-size: var(--text-xs); }
+  .footer a { color: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+`;
 
 function getHtml(nonce: string, version: string): string {
   const cards = FEATURES.map(f => `
-      <div class="card"${f.command ? ` data-command="${f.command}" title="Run ${esc(f.name)}"` : ''}>
-        <div class="card-header"><span class="card-icon">${f.icon}</span><span class="card-name c-cyan">${esc(f.name)}</span></div>
-        <div class="card-desc">${f.desc}</div>
-        ${f.shortcut ? `<span class="card-shortcut">${esc(f.shortcut)}</span>` : ''}
+      <div class="card feature${f.command ? ' interactive' : ''}"${f.command ? ` data-command="${f.command}" title="Run ${esc(f.name)}"` : ''}>
+        <div class="card-header"><div class="card-title">${icon(f.icon, 16)} ${esc(f.name)}</div></div>
+        <div class="card-content">
+          <div class="card-description">${f.desc}</div>
+          ${f.shortcut ? `<div class="row wrap shortcut">${f.shortcut.split('·').map(k => `<kbd>${esc(k.trim())}</kbd>`).join('')}</div>` : ''}
+        </div>
       </div>`).join('');
 
-  return /* html */`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>JSON Pro — Welcome</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground);
-         background: var(--vscode-editor-background); overflow-y: auto; padding: 0 0 60px 0; }
-  .hero { display: flex; align-items: center; gap: 20px; padding: 36px 48px 28px;
-          border-bottom: 1px solid var(--vscode-editorGroup-border, #333); background: var(--vscode-editorGroupHeader-tabsBackground); }
-  .hero-icon { font-size: 3em; line-height: 1; flex-shrink: 0; }
-  .hero-title { font-size: 1.8em; font-weight: 700; letter-spacing: -0.02em; }
-  .hero-sub { font-size: 0.9em; opacity: 0.6; margin-top: 4px; }
-  .hero-badges { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-  .badge { padding: 2px 10px; border-radius: 10px; font-size: 0.75em; font-weight: 600;
-           background: rgba(97,218,251,0.15); color: #61dafb; border: 1px solid rgba(97,218,251,0.3); }
-  .content { max-width: 900px; margin: 0 auto; padding: 32px 48px; }
-  .section { margin-bottom: 36px; }
-  .section-title { font-size: 0.7em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.45; margin-bottom: 14px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
-  .card { background: var(--vscode-editorWidget-background, #252526); border: 1px solid var(--vscode-editorGroup-border, #333);
-          border-radius: 8px; padding: 16px 18px; transition: border-color 0.15s; }
-  .card[data-command] { cursor: pointer; }
-  .card:hover { border-color: rgba(97,218,251,0.4); }
-  .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
-  .card-icon { font-size: 1.3em; flex-shrink: 0; }
-  .card-name { font-weight: 600; font-size: 0.92em; }
-  .card-desc { font-size: 0.82em; opacity: 0.6; line-height: 1.5; }
-  .card-shortcut { display: inline-block; margin-top: 8px; padding: 2px 8px; background: rgba(128,128,128,0.15); border-radius: 4px;
-                   font-family: var(--vscode-editor-font-family); font-size: 0.75em; opacity: 0.7; }
-  .kbd-table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
-  .kbd-table td { padding: 7px 10px; border-bottom: 1px solid var(--vscode-editorGroup-border, #2a2a2a); }
-  .kbd-table tr:last-child td { border-bottom: none; }
-  .kbd-table td:first-child { opacity: 0.7; }
-  .kbd { display: inline-block; padding: 2px 8px; border-radius: 4px; background: rgba(128,128,128,0.15);
-         font-family: var(--vscode-editor-font-family); font-size: 0.88em; }
-  .code-block { background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.25)); border: 1px solid var(--vscode-editorGroup-border, #333);
-                border-radius: 6px; padding: 16px 18px; font-family: var(--vscode-editor-font-family); font-size: 0.82em;
-                overflow-x: auto; white-space: pre; line-height: 1.6; }
-  .try-row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
-  button { padding: 6px 16px; cursor: pointer; border: none; border-radius: 4px; font-size: 0.84em; font-family: var(--vscode-font-family); }
-  .btn-primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-  .btn-primary:hover { background: var(--vscode-button-hoverBackground); }
-  .btn-secondary { background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-button-secondaryForeground, #ccc); }
-  .btn-secondary:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
-  .tip { display: flex; gap: 10px; padding: 12px 14px; border-radius: 6px; margin-bottom: 10px;
-         background: rgba(97,218,251,0.06); border: 1px solid rgba(97,218,251,0.15); font-size: 0.85em; }
-  .tip-icon { flex-shrink: 0; }
-  .tip-text { opacity: 0.85; line-height: 1.5; }
-  .tip-text strong { color: #61dafb; }
-  .footer { text-align: center; opacity: 0.5; font-size: 0.8em; margin-top: 40px; }
-  .footer a { color: inherit; cursor: pointer; text-decoration: underline; }
-  .c-cyan { color: #61dafb; } .c-amber { color: #ffc107; }
-</style>
-</head>
-<body>
-<div class="hero">
-  <div class="hero-icon">{ }</div>
+  const shortcuts: Array<[string, string]> = [
+    ['Format JSON', 'Shift+Alt+F'], ['Minify JSON', 'Shift+Alt+M'], ['Auto-Fix JSON', 'Shift+Alt+X'],
+    ['JSONPath Query', 'Shift+Alt+Q'], ['Show Stats', 'Shift+Alt+S'],
+  ];
+  const tips: Array<[string, string]> = [
+    ['eye', 'Hover over <strong>1711929600</strong> → decoded as a human-readable date'],
+    ['eye', 'Hover over <strong>"SGVsbG8gZnJvbSBKU09OIFBybw=="</strong> → decoded Base64 string'],
+    ['eye', 'Hover over <strong>"2024-04-01T08:00:00Z"</strong> → formatted date with timezone'],
+    ['zap', 'Run <strong>JSONPath Query</strong> → try <code>$.users[*].name</code> or <code>$.users[?(@.role == \'admin\')]</code>'],
+    ['chart', 'Run <strong>Show Stats</strong> → see type distribution and depth analysis'],
+    ['code', 'Run <strong>Generate TypeScript Interfaces</strong> → get typed interfaces instantly'],
+    ['layers', 'Run <strong>Flatten JSON</strong> → converts nested structure to dot-notation flat map'],
+  ];
+
+  const body = /* html */`
+<div class="hero"><div class="hero-inner">
+  <div class="hero-logo">${icon('braces', 30)}</div>
   <div>
-    <div class="hero-title">JSON <span class="c-amber">Pro</span></div>
+    <div class="hero-title">JSON Pro</div>
     <div class="hero-sub">The complete JSON toolbox for VS Code</div>
     <div class="hero-badges">
-      <span class="badge">Format</span><span class="badge">Fix</span><span class="badge">Diff</span><span class="badge">JSONPath</span>
-      <span class="badge">TypeScript</span><span class="badge">Stats</span><span class="badge">Merge</span><span class="badge">YAML</span><span class="badge">JSONC</span>
+      ${['Format', 'Fix', 'Diff', 'JSONPath', 'TypeScript', 'Stats', 'Merge', 'YAML', 'JSONC'].map(b => `<span class="badge badge-secondary">${b}</span>`).join('')}
     </div>
   </div>
-</div>
+</div></div>
 
 <div class="content">
-  <div class="section">
+  <section>
     <div class="section-title">Features — click a card to run it on the active JSON file</div>
     <div class="grid">${cards}
     </div>
-  </div>
+  </section>
 
-  <div class="section">
-    <div class="section-title">Keyboard Shortcuts</div>
-    <table class="kbd-table">
-      <tr><td>Format JSON</td><td><span class="kbd">Shift+Alt+F</span></td></tr>
-      <tr><td>Minify JSON</td><td><span class="kbd">Shift+Alt+M</span></td></tr>
-      <tr><td>Auto-Fix JSON</td><td><span class="kbd">Shift+Alt+X</span></td></tr>
-      <tr><td>JSONPath Query</td><td><span class="kbd">Shift+Alt+Q</span></td></tr>
-      <tr><td>Show Stats</td><td><span class="kbd">Shift+Alt+S</span></td></tr>
-      <tr><td>All commands</td><td>Right-click inside any <span class="kbd">.json</span> or <span class="kbd">.jsonc</span> file</td></tr>
-    </table>
-  </div>
+  <section>
+    <div class="section-title">Keyboard shortcuts</div>
+    <div class="card"><div class="card-content" style="padding:0">
+      <table class="table kbd-table"><tbody>
+        ${shortcuts.map(([name, keys]) => `<tr><td style="padding-left:16px">${name}</td><td>${keys.split('+').map(k => `<kbd>${k}</kbd>`).join(' + ')}</td></tr>`).join('')}
+        <tr><td style="padding-left:16px">All commands</td><td>Right-click inside any <kbd>.json</kbd> or <kbd>.jsonc</kbd> file, or search <strong>JSON Pro</strong> in the Command Palette</td></tr>
+      </tbody></table>
+    </div></div>
+  </section>
 
-  <div class="section">
-    <div class="section-title">Try It — Sample JSON</div>
-    <div class="code-block" id="sampleJson">${esc(SAMPLE)}</div>
-    <div class="try-row">
-      <button class="btn-primary" id="copySample">Copy to Clipboard</button>
-      <button class="btn-secondary" id="openSample">Open in New File</button>
+  <section>
+    <div class="section-title">Try it — sample JSON</div>
+    <div class="card sample-card">
+      <div class="card-header row">
+        <div><div class="card-title">${icon('fileJson', 15)} sample.json</div><div class="card-description">Covers every feature: timestamps, Base64, nested objects, arrays and nulls</div></div>
+        <div class="row">
+          <button class="btn btn-outline btn-sm" id="copySample">${icon('copy')} Copy</button>
+          <button class="btn btn-default btn-sm" id="openSample">${icon('external')} Open in new file</button>
+        </div>
+      </div>
+      <div class="card-content"><pre class="code" id="sampleJson">${esc(SAMPLE)}</pre></div>
     </div>
-  </div>
+  </section>
 
-  <div class="section">
-    <div class="section-title">Things to Try with the Sample</div>
-    <div class="tip"><span class="tip-icon">🕐</span><div class="tip-text">Hover over <strong>1711929600</strong> → decoded as a human-readable date</div></div>
-    <div class="tip"><span class="tip-icon">🔑</span><div class="tip-text">Hover over <strong>"SGVsbG8gZnJvbSBKU09OIFBybw=="</strong> → decoded Base64 string</div></div>
-    <div class="tip"><span class="tip-icon">📅</span><div class="tip-text">Hover over <strong>"2024-04-01T08:00:00Z"</strong> → formatted date with timezone</div></div>
-    <div class="tip"><span class="tip-icon">⚡</span><div class="tip-text">Run <strong>JSONPath Query</strong> → try <code>$.users[*].name</code> or <code>$.users[?(@.role == 'admin')]</code></div></div>
-    <div class="tip"><span class="tip-icon">📊</span><div class="tip-text">Run <strong>Show Stats</strong> → see type distribution and depth analysis</div></div>
-    <div class="tip"><span class="tip-icon">🏷</span><div class="tip-text">Run <strong>Generate TypeScript Interfaces</strong> → get typed interfaces instantly</div></div>
-    <div class="tip"><span class="tip-icon">📐</span><div class="tip-text">Run <strong>Flatten JSON</strong> → converts nested structure to dot-notation flat map</div></div>
-  </div>
+  <section>
+    <div class="section-title">Things to try with the sample</div>
+    <div class="tips">
+      ${tips.map(([ic, text]) => `<div class="alert">${icon(ic, 15)}<div class="alert-description">${text}</div></div>`).join('')}
+    </div>
+  </section>
 
   <div class="footer">JSON Pro · AkshayKale · <a id="changelog">v${esc(version)} — what's new</a></div>
-</div>
+</div>`;
 
-<script nonce="${nonce}">
+  const script = /* js */`
   const vscode = acquireVsCodeApi();
   const SAMPLE = document.getElementById('sampleJson').textContent;
-
-  document.getElementById('copySample').addEventListener('click', e => {
+  const copyBtn = document.getElementById('copySample');
+  const copyHtml = copyBtn.innerHTML;
+  copyBtn.addEventListener('click', () => {
     vscode.postMessage({ command: 'copy', text: SAMPLE });
-    const btn = e.currentTarget; btn.textContent = '✓ Copied!';
-    setTimeout(() => { btn.textContent = 'Copy to Clipboard'; }, 2000);
+    copyBtn.textContent = 'Copied!';
+    setTimeout(() => { copyBtn.innerHTML = copyHtml; }, 2000);
   });
   document.getElementById('openSample').addEventListener('click', () => vscode.postMessage({ command: 'openSample', json: SAMPLE }));
   document.getElementById('changelog').addEventListener('click', () => vscode.postMessage({ command: 'openChangelog' }));
   document.querySelectorAll('.card[data-command]').forEach(card =>
     card.addEventListener('click', () => vscode.postMessage({ command: 'runCommand', id: card.dataset.command })));
-</script>
-</body>
-</html>`;
+`;
+
+  return renderPage({ nonce, title: 'JSON Pro — Welcome', css: CSS, body, script });
 }
