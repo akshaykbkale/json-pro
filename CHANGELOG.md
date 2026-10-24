@@ -11,6 +11,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Lossless Minify.** Minify drops whitespace, comments and trailing commas but never rewrites values.
 - **Live JSONPath panel.** Results refresh automatically as you edit the source file; added `copy path`, regex filters (`=~ /.../`), existence filters (`[?(@.key)]`), quoted-key unions and recursive bracket selectors (`$..[0]`).
 - **Copy JSONPath** command (`$.users[0].name`) alongside Copy Path.
+- **Diff view redesign.** Added/removed rows use your theme's own diff-editor colours, the empty side of a one-sided row is hatched, every row has a `+` / `−` / `~` gutter sign, JSON tokens are syntax-coloured, and the characters that actually changed within a line are highlighted. Long runs of unchanged lines collapse to a "⋯ N unchanged lines" row (toggle with **Hide unchanged** or `h`), Prev/Next step through hunks with a `1 / 5` counter, and `n` / `p` (or `F7` / `Shift+F7`) navigate from the keyboard. Long lines wrap instead of being cut off.
 - **Load file…** buttons in the Diff and Merge panels, Ctrl/Cmd+Enter to compare/merge, and an array strategy selector (concatenate / replace) for Merge.
 - **Rename Key** now offers a picker of all keys in the document and reports how many occurrences were renamed.
 - **Search** is now a single fuzzy QuickPick over every key and value.

@@ -25,9 +25,11 @@
 ### ✦ Diff Checker
 Side-by-side diff panel with line numbers, color-coded changes, and navigation. Both sides are normalised before diffing, so pure formatting differences are ignored.
 
-- **Green** rows = added in right · **Red** rows = removed from left · **Amber** rows = same key, different value
-- Summary bar: `+2 added · -1 removed · ~3 changed · =8 same` (or *documents are semantically identical*)
-- Toolbar: Swap, Prev/Next hunk, Copy Right, Apply Right to the file the panel was opened from, Edit
+- **Green** rows = added in right · **Red** rows = removed from left · **Amber** rows = same key, different value — in your theme's own diff colours, with the changed characters highlighted inside the line
+- `+` / `−` / `~` gutter signs, hatched filler on the empty side, JSON syntax colouring, long lines wrap
+- Unchanged runs collapse to *⋯ N unchanged lines* (click to expand; toggle **Hide unchanged** or press `h`)
+- Summary bar: `+2 added · −1 removed · ~3 changed · =8 same` (or *documents are semantically identical*)
+- Toolbar: Prev/Next hunk with a `2 / 5` counter (`n` / `p`, `F7` / `Shift+F7`), Swap, Copy Right, Apply Right to the file the panel was opened from, Edit
 - **Load file…** on either side, `Ctrl/Cmd+Enter` to compare
 
 ---
