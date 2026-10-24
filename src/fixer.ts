@@ -1,127 +1,115 @@
 import * as vscode from 'vscode';
+import { fixJsonText } from './core/fixer';
+import { validateJsonText } from './core/json';
+import { fullRange, replaceDocumentText, statusMessage, validationOptionsFor } from './editorUtils';
 import { getOutputChannel } from './outputChannel';
 
-const output = getOutputChannel();
+const PREVIEW_SCHEME = 'jsonpro-fix';
+const previewContents = new Map<string, string>();
 
+export function registerFixPreviewProvider(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(PREVIEW_SCHEME, {
+      provideTextDocumentContent: uri => previewContents.get(uri.toString()) ?? '',
+    })
+  );
+}
+
+export type FixOutcome =
+  | { kind: 'clean' }
+  | { kind: 'unfixable'; message: string }
+  | { kind: 'fixed'; text: string };
+
+/** Compute a fix for a document without touching it. */
+export function computeFix(doc: vscode.TextDocument): FixOutcome {
+  const text = doc.getText();
+  if (text.trim().length === 0) return { kind: 'clean' };
+
+  const alreadyValid = validateJsonText(text, validationOptionsFor(doc)).length === 0;
+  const fixed = fixJsonText(text);
+  if (fixed === text) {
+    return alreadyValid ? { kind: 'clean' } : { kind: 'unfixable', message: describeRemaining(fixed) };
+  }
+  const remaining = validateJsonText(fixed, { allowComments: false, allowTrailingComma: false });
+  if (remaining.length > 0) return { kind: 'unfixable', message: describeRemaining(fixed) };
+  if (alreadyValid && doc.languageId === 'jsonc') {
+    // Valid JSONC: the only "fix" would be stripping comments the user wants to keep.
+    return { kind: 'clean' };
+  }
+  return { kind: 'fixed', text: fixed };
+}
+
+function describeRemaining(fixed: string): string {
+  const problems = validateJsonText(fixed, { allowComments: false, allowTrailingComma: false });
+  return problems.length > 0 ? `Still invalid after auto-fix — ${problems[0].message}` : 'Nothing to fix';
+}
+
+/** Interactive Auto-Fix: preview in a diff editor, then apply on confirmation. */
 export async function fixJson(editor: vscode.TextEditor): Promise<void> {
   const document = editor.document;
-  const text = document.getText();
+  const outcome = computeFix(document);
 
-  if (text.trim().length === 0) {
+  if (outcome.kind === 'clean') {
+    statusMessage('Document is already valid — nothing to fix');
+    return;
+  }
+  if (outcome.kind === 'unfixable') {
+    getOutputChannel().appendLine(`[fixer] ${outcome.message}`);
+    void vscode.window.showWarningMessage(`JSON Pro: ${outcome.message}`);
     return;
   }
 
-  let fixed = text;
+  const versionAtPreview = document.version;
+  const stamp = Date.now();
+  const originalUri = vscode.Uri.parse(`${PREVIEW_SCHEME}:/${stamp}/Original.json`);
+  const fixedUri = vscode.Uri.parse(`${PREVIEW_SCHEME}:/${stamp}/Fixed.json`);
+  previewContents.set(originalUri.toString(), document.getText());
+  previewContents.set(fixedUri.toString(), outcome.text);
 
-  // 1. Strip JS block comments (/* ... */)
-  fixed = fixed.replace(/\/\*[\s\S]*?\*\//g, '');
-
-  // 2. Strip JS line comments (//)
-  fixed = fixed.replace(/\/\/[^\n\r]*/g, '');
-
-  // 3. Replace single-quoted strings with double-quoted strings
-  // Uses non-backtracking alternation (?: ) to avoid ReDoS
-  fixed = fixed.replace(/'((?:[^'\\]|\\.)*)'/g, (_, inner: string) => {
-    const escaped = inner.replace(/"/g, '\\"').replace(/\\'/g, "'");
-    return `"${escaped}"`;
-  });
-
-  // 4. Add double quotes around unquoted keys (e.g. { key: "value" })
-  fixed = fixed.replace(/([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g, '$1"$2":');
-
-  // 5. Remove trailing commas before } or ]
-  fixed = fixed.replace(/,(\s*[}\]])/g, '$1');
-
-  // 6. Balance missing closing brackets and braces
-  fixed = balanceBrackets(fixed);
-
-  // Validate
   try {
-    JSON.parse(fixed);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    output.appendLine(`[fixer] Still invalid after fixes: ${msg}`);
-    vscode.window.setStatusBarMessage(`$(error) JSON Pro: Still invalid after auto-fix — ${msg}`, 5000);
-    return;
-  }
-
-  // Show diff preview then apply
-  await showDiffAndApply(document, text, fixed);
-}
-
-
-function balanceBrackets(text: string): string {
-  const stack: string[] = [];
-  let inString = false;
-  let escape = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-
-    if (escape) { escape = false; continue; }
-    if (ch === '\\' && inString) { escape = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
-    if (inString) continue;
-
-    if (ch === '{' || ch === '[') {
-      stack.push(ch);
-    } else if (ch === '}') {
-      if (stack.length > 0 && stack[stack.length - 1] === '{') stack.pop();
-    } else if (ch === ']') {
-      if (stack.length > 0 && stack[stack.length - 1] === '[') stack.pop();
-    }
-  }
-
-  // Append missing closing brackets/braces in reverse order
-  let result = text.trimEnd();
-  while (stack.length > 0) {
-    result += stack.pop() === '{' ? '}' : ']';
-  }
-  return result;
-}
-
-async function showDiffAndApply(
-  document: vscode.TextDocument,
-  original: string,
-  fixed: string
-): Promise<void> {
-  const originalUri = vscode.Uri.parse('jsonpro-diff:Original.json');
-  const fixedUri = vscode.Uri.parse('jsonpro-diff:Fixed.json');
-
-  const provider = new (class implements vscode.TextDocumentContentProvider {
-    provideTextDocumentContent(uri: vscode.Uri): string {
-      return uri.path === 'Original.json' ? original : fixed;
-    }
-  })();
-
-  const reg = vscode.workspace.registerTextDocumentContentProvider('jsonpro-diff', provider);
-
-  await vscode.commands.executeCommand(
-    'vscode.diff',
-    originalUri,
-    fixedUri,
-    'JSON Pro: Auto-Fix Preview (Original ↔ Fixed)',
-    { preview: true, viewColumn: vscode.ViewColumn.Beside }
-  );
-
-  const answer = await vscode.window.showInformationMessage(
-    'Apply auto-fix to document?',
-    { modal: false },
-    'Apply',
-    'Discard'
-  );
-
-  reg.dispose();
-
-  if (answer === 'Apply') {
-    const edit = new vscode.WorkspaceEdit();
-    const fullRange = new vscode.Range(
-      document.positionAt(0),
-      document.positionAt(document.getText().length)
+    await vscode.commands.executeCommand(
+      'vscode.diff', originalUri, fixedUri,
+      'JSON Pro: Auto-Fix Preview (Original ↔ Fixed)',
+      { preview: true, viewColumn: vscode.ViewColumn.Beside }
     );
-    edit.replace(document.uri, fullRange, fixed);
-    await vscode.workspace.applyEdit(edit);
-    vscode.window.setStatusBarMessage('$(check) JSON Pro: Auto-fix applied', 3000);
+
+    const answer = await vscode.window.showInformationMessage(
+      'JSON Pro: Apply auto-fix to the document?', 'Apply', 'Discard'
+    );
+    await closePreviewTabs(originalUri, fixedUri);
+
+    if (answer === 'Apply') {
+      if (document.version !== versionAtPreview) {
+        void vscode.window.showWarningMessage('JSON Pro: The document changed while the preview was open — run Auto-Fix again.');
+        return;
+      }
+      await replaceDocumentText(document, outcome.text);
+      statusMessage('Auto-fix applied');
+    }
+  } finally {
+    previewContents.delete(originalUri.toString());
+    previewContents.delete(fixedUri.toString());
   }
 }
 
+/** Fix-on-save: returns the edits to apply, or an empty list when nothing needs fixing. */
+export function fixOnSaveEdits(doc: vscode.TextDocument): vscode.TextEdit[] {
+  const outcome = computeFix(doc);
+  if (outcome.kind !== 'fixed') return [];
+  getOutputChannel().appendLine(`[autoFixOnSave] Fixed ${doc.uri.fsPath}`);
+  return [vscode.TextEdit.replace(fullRange(doc), outcome.text)];
+}
+
+async function closePreviewTabs(...uris: vscode.Uri[]): Promise<void> {
+  const wanted = new Set(uris.map(u => u.toString()));
+  const tabs = vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(tab => {
+    const input = tab.input;
+    if (input instanceof vscode.TabInputTextDiff) {
+      return wanted.has(input.original.toString()) || wanted.has(input.modified.toString());
+    }
+    return false;
+  });
+  if (tabs.length > 0) {
+    try { await vscode.window.tabGroups.close(tabs); } catch { /* tab already closed */ }
+  }
+}

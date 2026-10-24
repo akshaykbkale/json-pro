@@ -1,562 +1,448 @@
 import * as vscode from 'vscode';
+import { computeJsonDiff } from './core/diff';
+import { generateNonce, getIndent, isJsonDocument, pickJsonFile, replaceDocumentText, resolveDocument, statusMessage } from './editorUtils';
+import { escapeHtml, icon, renderPage } from './webview/ui';
 
-export function openDiffPanel(context: vscode.ExtensionContext): void {
+/** Open the diff panel with the active JSON document pre-filled on the left. */
+export function openDiffPanel(context: vscode.ExtensionContext, editor: vscode.TextEditor | undefined): void {
   const nonce = generateNonce();
   const panel = vscode.window.createWebviewPanel(
     'jsonProDiff',
-    'JSON Diff',
+    'JSON Pro: Diff',
     vscode.ViewColumn.One,
-    { enableScripts: true }
+    { enableScripts: true, retainContextWhenHidden: true }
   );
 
-  let initialLeft = '';
-  const editor = vscode.window.activeTextEditor;
-  if (
-    editor &&
-    (editor.document.languageId === 'json' || editor.document.languageId === 'jsonc')
-  ) {
-    initialLeft = editor.document.getText();
-  }
+  const source = editor && isJsonDocument(editor.document) ? editor.document : undefined;
+  const sourceUri = source?.uri;
+  const sourceName = sourceUri ? vscode.workspace.asRelativePath(sourceUri) : undefined;
+  const indent = getIndent(source);
 
-  panel.webview.html = getWebviewHtml(nonce);
+  panel.webview.html = getWebviewHtml(nonce, sourceName);
+  void panel.webview.postMessage({ command: 'init', json: source?.getText() ?? '', name: sourceName ?? 'original' });
 
-  // Send initial JSON safely via postMessage — never interpolated into HTML
-  panel.webview.postMessage({ command: 'init', json: initialLeft });
-
-  panel.webview.onDidReceiveMessage(
-    async (msg: {
-      command: string;
-      left?: string;
-      right?: string;
-      leftName?: string;
-      rightName?: string;
-    }) => {
+  const sub = panel.webview.onDidReceiveMessage(
+    async (msg: { command: string; left?: string; right?: string; leftName?: string; rightName?: string; side?: 'left' | 'right'; text?: string }) => {
       if (msg.command === 'compare') {
-        const result = computeDiff(msg.left ?? '', msg.right ?? '');
-        panel.webview.postMessage({
+        const result = computeJsonDiff(msg.left ?? '', msg.right ?? '', indent);
+        void panel.webview.postMessage({
           command: 'diffResult',
           leftName: msg.leftName || 'original',
           rightName: msg.rightName || 'modified',
           ...result,
         });
       } else if (msg.command === 'applyToEditor') {
-        await applyToEditor(msg.right ?? '');
-      }
-    },
-    undefined,
-    context.subscriptions
-  );
-}
-
-async function applyToEditor(text: string): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) {
-    vscode.window.showWarningMessage('JSON Pro: No active editor to apply changes to.');
-    return;
-  }
-  const doc = editor.document;
-  const edit = new vscode.WorkspaceEdit();
-  const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
-  edit.replace(doc.uri, fullRange, text);
-  await vscode.workspace.applyEdit(edit);
-  vscode.window.setStatusBarMessage('$(check) JSON Pro: Changes applied to editor', 3000);
-}
-
-// ─── Diff types ──────────────────────────────────────────────────────────────
-
-interface DiffLine {
-  type: 'equal' | 'added' | 'removed' | 'changed';
-  leftLine: string;
-  rightLine: string;
-  leftNum: number | null;
-  rightNum: number | null;
-}
-
-interface DiffSuccess {
-  type: 'success';
-  lines: DiffLine[];
-  formattedLeft: string;
-  formattedRight: string;
-  summary: { added: number; removed: number; changed: number; same: number };
-}
-
-interface DiffError {
-  type: 'error';
-  side: 'left' | 'right';
-  message: string;
-}
-
-// ─── Diff algorithm ──────────────────────────────────────────────────────────
-
-function computeDiff(leftText: string, rightText: string): DiffSuccess | DiffError {
-  let leftFormatted: string;
-  let rightFormatted: string;
-
-  try {
-    leftFormatted = JSON.stringify(JSON.parse(leftText), null, 2);
-  } catch (e) {
-    return { type: 'error', side: 'left', message: e instanceof Error ? e.message : String(e) };
-  }
-
-  try {
-    rightFormatted = JSON.stringify(JSON.parse(rightText), null, 2);
-  } catch (e) {
-    return { type: 'error', side: 'right', message: e instanceof Error ? e.message : String(e) };
-  }
-
-  const leftLines = leftFormatted.split('\n');
-  const rightLines = rightFormatted.split('\n');
-  const lines = lineDiff(leftLines, rightLines);
-
-  let added = 0, removed = 0, changed = 0, same = 0;
-  for (const l of lines) {
-    if (l.type === 'added') added++;
-    else if (l.type === 'removed') removed++;
-    else if (l.type === 'changed') changed++;
-    else same++;
-  }
-
-  return { type: 'success', lines, formattedLeft: leftFormatted, formattedRight: rightFormatted, summary: { added, removed, changed, same } };
-}
-
-function lineDiff(leftLines: string[], rightLines: string[]): DiffLine[] {
-  const m = leftLines.length;
-  const n = rightLines.length;
-
-  // LCS table
-  const lcs: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      lcs[i][j] =
-        leftLines[i - 1] === rightLines[j - 1]
-          ? lcs[i - 1][j - 1] + 1
-          : Math.max(lcs[i - 1][j], lcs[i][j - 1]);
-    }
-  }
-
-  // Backtrack
-  type Op = { type: 'equal' | 'added' | 'removed'; li?: number; ri?: number };
-  const ops: Op[] = [];
-  let i = m, j = n;
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && leftLines[i - 1] === rightLines[j - 1]) {
-      ops.push({ type: 'equal', li: i - 1, ri: j - 1 });
-      i--; j--;
-    } else if (j > 0 && (i === 0 || lcs[i][j - 1] >= lcs[i - 1][j])) {
-      ops.push({ type: 'added', ri: j - 1 });
-      j--;
-    } else {
-      ops.push({ type: 'removed', li: i - 1 });
-      i--;
-    }
-  }
-  ops.reverse();
-
-  // Convert ops → DiffLine[]
-  // Only pair removed+added as 'changed' when they share the same JSON key.
-  // Otherwise emit removed (left-only) then added (right-only) separately.
-  const result: DiffLine[] = [];
-  let ln = 1, rn = 1;
-  let idx = 0;
-
-  while (idx < ops.length) {
-    const op = ops[idx];
-    if (op.type === 'equal') {
-      result.push({ type: 'equal', leftLine: leftLines[op.li!], rightLine: rightLines[op.ri!], leftNum: ln++, rightNum: rn++ });
-      idx++;
-    } else {
-      // Gather the whole hunk
-      const removedOps: Op[] = [];
-      const addedOps: Op[] = [];
-      while (idx < ops.length && ops[idx].type !== 'equal') {
-        if (ops[idx].type === 'removed') removedOps.push(ops[idx]);
-        else addedOps.push(ops[idx]);
-        idx++;
-      }
-
-      // Match by JSON key: only pair lines with the same key as 'changed'
-      const usedAdded = new Set<number>();
-      const pairedRemoved = new Set<number>();
-
-      for (let r = 0; r < removedOps.length; r++) {
-        const lLine = leftLines[removedOps[r].li!];
-        const lKey = extractJsonKey(lLine);
-        if (lKey !== null) {
-          for (let a = 0; a < addedOps.length; a++) {
-            if (usedAdded.has(a)) continue;
-            const rLine = rightLines[addedOps[a].ri!];
-            if (extractJsonKey(rLine) === lKey) {
-              result.push({ type: 'changed', leftLine: lLine, rightLine: rLine, leftNum: ln++, rightNum: rn++ });
-              pairedRemoved.add(r);
-              usedAdded.add(a);
-              break;
-            }
-          }
+        const doc = await resolveDocument(sourceUri);
+        if (!doc) {
+          void vscode.window.showWarningMessage('JSON Pro: The original document is no longer available.');
+          return;
         }
-      }
-
-      // Remaining removed → left-only rows
-      for (let r = 0; r < removedOps.length; r++) {
-        if (pairedRemoved.has(r)) continue;
-        result.push({ type: 'removed', leftLine: leftLines[removedOps[r].li!], rightLine: '', leftNum: ln++, rightNum: null });
-      }
-      // Remaining added → right-only rows
-      for (let a = 0; a < addedOps.length; a++) {
-        if (usedAdded.has(a)) continue;
-        result.push({ type: 'added', leftLine: '', rightLine: rightLines[addedOps[a].ri!], leftNum: null, rightNum: rn++ });
+        await replaceDocumentText(doc, msg.right ?? '');
+        statusMessage('Diff applied to editor');
+        await vscode.window.showTextDocument(doc, { preview: false });
+      } else if (msg.command === 'pickFile') {
+        const text = await pickJsonFile();
+        if (text !== undefined) void panel.webview.postMessage({ command: 'setSide', side: msg.side, json: text });
+      } else if (msg.command === 'copy' && typeof msg.text === 'string') {
+        await vscode.env.clipboard.writeText(msg.text);
       }
     }
-  }
-
-  return result;
+  );
+  panel.onDidDispose(() => sub.dispose(), undefined, context.subscriptions);
 }
 
-function extractJsonKey(line: string): string | null {
-  const m = line.trim().match(/^"([^"]+)"\s*:/);
-  return m ? m[1] : null;
-}
-
-// ─── Nonce generator ──────────────────────────────────────────────────────────
-
-function generateNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let nonce = '';
-  for (let i = 0; i < 32; i++) {
-    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return nonce;
-}
-
-// ─── Webview HTML ─────────────────────────────────────────────────────────────
-
-function getWebviewHtml(nonce: string): string {
-  return /* html */`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>JSON Diff</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: var(--vscode-font-family);
-    font-size: var(--vscode-font-size);
-    color: var(--vscode-foreground);
-    background: var(--vscode-editor-background);
-    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+const CSS = /* css */`
+  body { display: flex; flex-direction: column; overflow: hidden; }
+  :root {
+    --add-line: var(--vscode-diffEditor-insertedLineBackground, rgba(63,185,80,0.15));
+    --add-text: var(--vscode-diffEditor-insertedTextBackground, rgba(63,185,80,0.40));
+    --del-line: var(--vscode-diffEditor-removedLineBackground, rgba(224,82,82,0.15));
+    --del-text: var(--vscode-diffEditor-removedTextBackground, rgba(224,82,82,0.40));
+    --chg-line: color-mix(in srgb, var(--warning) 16%, transparent);
+    --chg-text: color-mix(in srgb, var(--warning) 45%, transparent);
+    --add-fg: var(--vscode-gitDecoration-addedResourceForeground, #3fb950);
+    --del-fg: var(--vscode-gitDecoration-deletedResourceForeground, #e05252);
+    --chg-fg: var(--vscode-gitDecoration-modifiedResourceForeground, #d29922);
+    --tok-key: var(--vscode-debugTokenExpression-name, #9cdcfe);
+    --tok-str: var(--vscode-debugTokenExpression-string, #ce9178);
+    --tok-num: var(--vscode-debugTokenExpression-number, #b5cea8);
+    --tok-kw:  var(--vscode-debugTokenExpression-boolean, #569cd6);
+    --filler: repeating-linear-gradient(-45deg, transparent 0 5px, rgba(128,128,128,0.10) 5px 10px);
   }
 
-  /* ── Input section ── */
+  /* ── Input stage ── */
   #input-section { display: flex; flex-direction: column; flex: 1; padding: 16px; gap: 12px; overflow: auto; }
   .input-row { display: flex; gap: 12px; flex: 1; min-height: 0; }
-  .input-col { display: flex; flex-direction: column; flex: 1; gap: 6px; }
-  .input-col input {
-    padding: 4px 8px; border-radius: 4px; border: 1px solid var(--vscode-input-border, #555);
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    font-size: 0.85em;
-  }
-  .input-col textarea {
-    flex: 1; padding: 8px; resize: none;
-    font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size);
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, #555); border-radius: 4px;
-  }
-  .input-col textarea.error { border-color: #e05252; }
-  .error-msg { color: #e05252; font-size: 0.82em; min-height: 16px; }
-  .input-actions { display: flex; gap: 8px; }
+  .input-col { flex: 1; }
+  .input-col .card-content { flex: 1; }
+  .input-col .textarea { flex: 1; min-height: 160px; }
+  .input-actions { display: flex; gap: 12px; align-items: center; }
 
-  /* ── Result section ── */
+  /* ── Result stage ── */
   #result-section { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+  .hunk-pos { font-size: var(--text-xs); color: var(--muted-foreground); min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; }
+  .summary { display: flex; align-items: center; gap: 6px; padding: 7px 12px; flex-shrink: 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .summary .kbd-hint { margin-left: auto; display: inline-flex; gap: 10px; align-items: center; font-size: var(--text-xs); color: var(--muted-foreground); }
+  .badge.b-added { color: var(--add-fg); } .badge.b-removed { color: var(--del-fg); } .badge.b-changed { color: var(--chg-fg); }
+  .badge.b-same { color: var(--muted-foreground); }
+  .badge.b-identical { color: var(--add-fg); border-color: color-mix(in srgb, var(--add-fg) 40%, transparent); background: var(--add-line); }
 
-  .toolbar {
-    display: flex; align-items: center; gap: 4px; padding: 6px 12px;
-    background: var(--vscode-editorGroupHeader-tabsBackground);
-    border-bottom: 1px solid var(--vscode-editorGroup-border, #333);
-    flex-shrink: 0;
-  }
-  .toolbar-label { font-weight: 600; margin-right: 8px; font-size: 0.9em; opacity: 0.8; }
-  .toolbar-sep { flex: 1; }
-
-  .summary {
-    display: flex; align-items: center; gap: 8px; padding: 6px 12px; flex-shrink: 0;
-    background: var(--vscode-editorWidget-background, #252526);
-    border-bottom: 1px solid var(--vscode-editorGroup-border, #333);
-    font-size: 0.82em;
-  }
-  .summary-label { opacity: 0.6; font-weight: 600; }
-
-  /* ── Diff view ── */
   .diff-wrap { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
-  .diff-headers { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--vscode-editorGroup-border, #333); }
-  .diff-header-col {
-    flex: 1; padding: 5px 12px; font-size: 0.82em; font-weight: 600;
-    background: var(--vscode-editorGroupHeader-tabsBackground);
-    display: flex; align-items: center; gap: 6px;
-  }
-  .diff-header-col + .diff-header-col { border-left: 1px solid var(--vscode-editorGroup-border, #333); }
-  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-  .dot.red { background: #e05252; }
-  .dot.green { background: #3fb950; }
-
+  .diff-headers { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--card); }
+  .diff-header-col { flex: 1; padding: 6px 12px; font-size: var(--text-xs); font-weight: 500; color: var(--muted-foreground);
+                     display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .diff-header-col .name { color: var(--foreground); font-weight: 600; }
+  .diff-header-col + .diff-header-col { border-left: 1px solid var(--border); }
+  .dot-l { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .dot-l.red { background: var(--del-fg); } .dot-l.green { background: var(--add-fg); }
   .diff-body { flex: 1; overflow: auto; }
-  .diff-table { width: 100%; border-collapse: collapse; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size, 13px); table-layout: fixed; }
-  .diff-table td { padding: 1px 0; vertical-align: top; white-space: pre; }
+  .diff-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono);
+                font-size: var(--vscode-editor-font-size, 13px); table-layout: fixed; line-height: 1.5; }
+  .diff-table td { padding: 0; vertical-align: top; }
+  col.c-ln { width: 44px; } col.c-sign { width: 16px; } col.c-mid { width: 1px; }
+  .ln { text-align: right; padding: 0 6px 0 4px; color: var(--muted-foreground); opacity: 0.7; user-select: none; font-size: 0.88em; }
+  .sign { text-align: center; user-select: none; font-weight: 700; }
+  .code { padding: 0 12px 0 4px; white-space: pre-wrap; word-break: break-all; }
+  .mid-border { background: var(--border); padding: 0; }
+  .filler { background: var(--filler); }
 
-  .ln { width: 48px; min-width: 48px; text-align: right; padding: 1px 8px; opacity: 0.4; user-select: none; font-size: 0.88em; }
-  .code { padding: 1px 12px; width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  tr.added .ln-right, tr.added .sign-right, tr.added .code-right { background: var(--add-line); }
+  tr.added .sign-right { color: var(--add-fg); }
+  tr.removed .ln-left, tr.removed .sign-left, tr.removed .code-left { background: var(--del-line); }
+  tr.removed .sign-left { color: var(--del-fg); }
+  tr.changed .ln-left, tr.changed .sign-left, tr.changed .code-left,
+  tr.changed .ln-right, tr.changed .sign-right, tr.changed .code-right { background: var(--chg-line); }
+  tr.changed .sign { color: var(--chg-fg); }
+  tr.added .ln-right, tr.removed .ln-left, tr.changed .ln { opacity: 1; }
+  .code-right .chg, tr.added .chg { background: var(--add-text); border-radius: 2px; }
+  .code-left .chg, tr.removed .chg { background: var(--del-text); border-radius: 2px; }
+  tr.changed .chg { background: var(--chg-text); }
+  .tk-key { color: var(--tok-key); } .tk-str { color: var(--tok-str); } .tk-num { color: var(--tok-num); } .tk-kw { color: var(--tok-kw); }
+  .tk-pun { opacity: 0.7; }
+  tr.collapsed td { text-align: center; font-family: var(--font-sans); font-size: var(--text-xs); color: var(--muted-foreground); padding: 4px 0;
+                    cursor: pointer; user-select: none; background: var(--muted); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  tr.collapsed td:hover { color: var(--foreground); background: var(--accent); }
+  tr.collapsed td .icon { vertical-align: -3px; margin-right: 4px; }
+  tr.current-diff td:first-child { box-shadow: inset 3px 0 0 var(--ring); }
+`;
 
-  /* equal */
-  tr.equal .ln, tr.equal .code { background: transparent; }
-  /* added */
-  tr.added .ln-left, tr.added .code-left { background: rgba(63,185,80,0.06); }
-  tr.added .ln-right, tr.added .code-right { background: rgba(63,185,80,0.18); }
-  /* removed */
-  tr.removed .ln-left, tr.removed .code-left { background: rgba(224,82,82,0.18); }
-  tr.removed .ln-right, tr.removed .code-right { background: rgba(224,82,82,0.06); }
-  /* changed */
-  tr.changed .ln-left, tr.changed .code-left { background: rgba(210,153,34,0.18); }
-  tr.changed .ln-right, tr.changed .code-right { background: rgba(210,153,34,0.18); }
-
-  .mid-border { width: 1px; min-width: 1px; background: var(--vscode-editorGroup-border, #333); padding: 0; }
-
-  tr.current-diff td { outline: 1px solid rgba(255,255,255,0.2); outline-offset: -1px; }
-
-  /* ── Shared buttons ── */
-  button {
-    padding: 4px 12px; cursor: pointer; border: none; border-radius: 3px;
-    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
-    font-size: 0.85em; white-space: nowrap;
-  }
-  button:hover { background: var(--vscode-button-hoverBackground); }
-  button.secondary {
-    background: var(--vscode-button-secondaryBackground, #3a3d41);
-    color: var(--vscode-button-secondaryForeground, #ccc);
-  }
-  button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
-
-  /* ── badges ── */
-  .badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 10px; font-size: 0.82em; }
-  .badge.added   { background: rgba(63,185,80,0.2);  color: #3fb950; }
-  .badge.removed { background: rgba(224,82,82,0.2);  color: #e05252; }
-  .badge.changed { background: rgba(210,153,34,0.2); color: #d29922; }
-  .badge.same    { background: rgba(128,128,128,0.15); color: var(--vscode-foreground); opacity: 0.6; }
-</style>
-</head>
-<body>
-
-<!-- ── Input section ────────────────────────────────────── -->
+function getWebviewHtml(nonce: string, sourceName: string | undefined): string {
+  const body = /* html */`
 <div id="input-section">
   <div class="input-row">
-    <div class="input-col">
-      <input type="text" id="left-name" placeholder="Left label (e.g. original)" value="original">
-      <textarea id="left" placeholder="Paste original JSON here..."></textarea>
-      <div id="left-error" class="error-msg"></div>
+    <div class="card input-col">
+      <div class="card-header row">
+        <div><div class="card-title"><span class="dot-l red"></span>Original</div><div class="card-description">Left side — the baseline to compare against</div></div>
+        <button class="btn btn-outline btn-sm" data-pick="left">${icon('file')} Load file…</button>
+      </div>
+      <div class="card-content">
+        <input class="input" type="text" id="left-name" placeholder="Label (e.g. original)" value="original" spellcheck="false">
+        <textarea class="textarea mono" id="left" placeholder="Paste original JSON here…" spellcheck="false"></textarea>
+        <div id="left-error" class="field-error"></div>
+      </div>
     </div>
-    <div class="input-col">
-      <input type="text" id="right-name" placeholder="Right label (e.g. modified)" value="modified">
-      <textarea id="right" placeholder="Paste modified JSON here..."></textarea>
-      <div id="right-error" class="error-msg"></div>
+    <div class="card input-col">
+      <div class="card-header row">
+        <div><div class="card-title"><span class="dot-l green"></span>Modified</div><div class="card-description">Right side — the version with changes</div></div>
+        <button class="btn btn-outline btn-sm" data-pick="right">${icon('file')} Load file…</button>
+      </div>
+      <div class="card-content">
+        <input class="input" type="text" id="right-name" placeholder="Label (e.g. modified)" value="modified" spellcheck="false">
+        <textarea class="textarea mono" id="right" placeholder="Paste modified JSON here…" spellcheck="false"></textarea>
+        <div id="right-error" class="field-error"></div>
+      </div>
     </div>
   </div>
   <div class="input-actions">
-    <button id="compareBtn">Compare</button>
+    <button id="compareBtn" class="btn btn-default">${icon('diff')} Compare</button>
+    <span class="text-xs muted"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> to compare · both sides are normalised first, so formatting differences are ignored</span>
   </div>
 </div>
 
-<!-- ── Result section ───────────────────────────────────── -->
 <div id="result-section">
   <div class="toolbar">
-    <span class="toolbar-label">JSON Diff</span>
-    <button class="secondary" onclick="doSwap()">&#8597; Swap</button>
-    <button class="secondary" onclick="goPrev()">&#8593; Prev</button>
-    <button class="secondary" onclick="goNext()">&#8595; Next</button>
-    <button class="secondary" onclick="doFormatBoth()">&#8801; Format Both</button>
-    <button onclick="doApplyAll()">&#10003; Apply All</button>
-    <span class="toolbar-sep"></span>
-    <button class="secondary" onclick="goBack()">&#8592; Edit</button>
+    <span class="toolbar-title">${icon('diff', 15)} JSON Diff</span>
+    <span class="btn-group">
+      <button class="btn btn-outline btn-sm" data-action="prev" title="Previous change (p / Shift+F7)">${icon('chevronUp')} Prev</button>
+      <span class="hunk-pos" id="hunk-pos">0 / 0</span>
+      <button class="btn btn-outline btn-sm" data-action="next" title="Next change (n / F7)">Next ${icon('chevronDown')}</button>
+    </span>
+    <hr class="separator vertical">
+    <label class="switch" title="Collapse runs of unchanged lines (h)"><input type="checkbox" id="collapseToggle" checked><span class="switch-track"><span class="switch-thumb"></span></span>Hide unchanged</label>
+    <hr class="separator vertical">
+    <button class="btn btn-ghost btn-sm" data-action="swap">${icon('swap')} Swap</button>
+    <button class="btn btn-ghost btn-sm" data-action="copyRight">${icon('copy')} Copy right</button>
+    <button class="btn btn-default btn-sm" data-action="apply" id="applyBtn"${sourceName ? '' : ' disabled title="No source document to apply to"'}>${icon('check')} Apply right to ${sourceName ? escapeHtml(sourceName) : 'editor'}</button>
+    <span class="spacer"></span>
+    <button class="btn btn-outline btn-sm" data-action="back">${icon('arrowLeft')} Edit</button>
   </div>
   <div class="summary" id="summary"></div>
   <div class="diff-wrap">
     <div class="diff-headers">
-      <div class="diff-header-col"><span class="dot red"></span> original &mdash; <span id="left-title">left</span></div>
-      <div class="diff-header-col"><span class="dot green"></span> modified &mdash; <span id="right-title">right</span></div>
+      <div class="diff-header-col"><span class="dot-l red"></span>original <span class="name truncate" id="left-title">original</span></div>
+      <div class="diff-header-col"><span class="dot-l green"></span>modified <span class="name truncate" id="right-title">modified</span></div>
     </div>
-    <div class="diff-body">
-      <table class="diff-table" id="diff-table"><tbody id="diff-tbody"></tbody></table>
-    </div>
+    <div class="diff-body" id="diff-body"><table class="diff-table">
+        <colgroup><col class="c-ln"><col class="c-sign"><col class="c-code"><col class="c-mid"><col class="c-ln"><col class="c-sign"><col class="c-code"></colgroup>
+        <tbody id="diff-tbody"></tbody></table></div>
   </div>
-</div>
+</div>`;
 
-<script nonce="${nonce}">
+  const script = /* js */`
   const vscode = acquireVsCodeApi();
-  let diffRows = [];       // all tr elements
-  let diffIndices = [];    // indices of non-equal rows
-  let currentDiffIdx = -1;
-  let lastFormattedLeft = '';
-  let lastFormattedRight = '';
+  const $ = id => document.getElementById(id);
+  const CONTEXT = 3;        // unchanged lines kept around each change when collapsing
+  const MIN_COLLAPSE = 4;   // runs shorter than this are never collapsed
+  const CHEVRON = ${JSON.stringify(icon('chevronDown', 12))};
 
-  document.getElementById('compareBtn').addEventListener('click', sendCompare);
+  let lines = [];           // DiffLine[] from the extension host
+  let hunks = [];           // { start, end } row-index ranges of consecutive changed rows
+  let rowEls = new Map();   // row index → <tr>
+  let currentHunk = -1;
+  let expanded = new Set(); // start indices of collapsed runs the user opened
+  let lastFormattedRight = '';
+  const saved = vscode.getState() || {};
+  let collapse = saved.collapse !== undefined ? saved.collapse : true;
+  $('collapseToggle').checked = collapse;
+
+  $('compareBtn').addEventListener('click', sendCompare);
+  ['left', 'right'].forEach(id => $(id).addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendCompare(); }));
+  document.querySelectorAll('[data-pick]').forEach(b => b.addEventListener('click', () => vscode.postMessage({ command: 'pickFile', side: b.dataset.pick })));
+  document.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => actions[b.dataset.action]()));
+  $('collapseToggle').addEventListener('change', e => { collapse = e.target.checked; vscode.setState({ collapse }); expanded.clear(); render(); });
+  $('diff-tbody').addEventListener('click', e => {
+    const tr = e.target.closest('tr.collapsed');
+    if (tr) { expanded.add(Number(tr.dataset.start)); render(); }
+  });
+  document.addEventListener('keydown', e => {
+    if ($('result-section').style.display !== 'flex') return;
+    if (e.target.tagName === 'TEXTAREA' || (e.target.tagName === 'INPUT' && e.target.type === 'text')) return;
+    if (e.key === 'n' || (e.key === 'F7' && !e.shiftKey)) { e.preventDefault(); actions.next(); }
+    else if (e.key === 'p' || (e.key === 'F7' && e.shiftKey)) { e.preventDefault(); actions.prev(); }
+    else if (e.key === 'h') { $('collapseToggle').click(); }
+  });
+
+  const actions = {
+    back: () => { $('result-section').style.display = 'none'; $('input-section').style.display = 'flex'; },
+    swap: () => {
+      const lv = $('left').value, rv = $('right').value, ln = $('left-name').value, rn = $('right-name').value;
+      $('left').value = rv; $('right').value = lv; $('left-name').value = rn; $('right-name').value = ln;
+      sendCompare();
+    },
+    prev: () => { if (!hunks.length) return; goToHunk((currentHunk - 1 + hunks.length) % hunks.length); },
+    next: () => { if (!hunks.length) return; goToHunk((currentHunk + 1) % hunks.length); },
+    copyRight: () => vscode.postMessage({ command: 'copy', text: lastFormattedRight }),
+    apply: () => vscode.postMessage({ command: 'applyToEditor', right: lastFormattedRight }),
+  };
 
   function sendCompare() {
-    const left  = document.getElementById('left').value;
-    const right = document.getElementById('right').value;
-    const leftName  = document.getElementById('left-name').value;
-    const rightName = document.getElementById('right-name').value;
     clearErrors();
-    vscode.postMessage({ command: 'compare', left, right, leftName, rightName });
+    vscode.postMessage({ command: 'compare', left: $('left').value, right: $('right').value,
+                         leftName: $('left-name').value, rightName: $('right-name').value });
   }
-
   function clearErrors() {
-    document.getElementById('left').classList.remove('error');
-    document.getElementById('right').classList.remove('error');
-    document.getElementById('left-error').textContent = '';
-    document.getElementById('right-error').textContent = '';
+    ['left', 'right'].forEach(id => { $(id).classList.remove('invalid'); const e = $(id + '-error'); e.textContent = ''; e.classList.remove('show'); });
   }
-
-  function goBack() {
-    document.getElementById('result-section').style.display = 'none';
-    document.getElementById('input-section').style.display = 'flex';
-  }
-
-  function doSwap() {
-    const lv = document.getElementById('left').value;
-    const rv = document.getElementById('right').value;
-    const ln = document.getElementById('left-name').value;
-    const rn = document.getElementById('right-name').value;
-    document.getElementById('left').value  = rv;
-    document.getElementById('right').value = lv;
-    document.getElementById('left-name').value  = rn;
-    document.getElementById('right-name').value = ln;
-    goBack();
-    sendCompare();
-  }
-
-  function doFormatBoth() {
-    try { document.getElementById('left').value  = JSON.stringify(JSON.parse(document.getElementById('left').value), null, 2); } catch(e) {}
-    try { document.getElementById('right').value = JSON.stringify(JSON.parse(document.getElementById('right').value), null, 2); } catch(e) {}
-    sendCompare();
-  }
-
-  function doApplyAll() {
-    vscode.postMessage({ command: 'applyToEditor', right: lastFormattedRight });
-  }
-
-  function goPrev() {
-    if (diffIndices.length === 0) return;
-    currentDiffIdx = (currentDiffIdx - 1 + diffIndices.length) % diffIndices.length;
-    scrollToDiff(diffIndices[currentDiffIdx]);
-  }
-
-  function goNext() {
-    if (diffIndices.length === 0) return;
-    currentDiffIdx = (currentDiffIdx + 1) % diffIndices.length;
-    scrollToDiff(diffIndices[currentDiffIdx]);
-  }
-
-  function scrollToDiff(rowIdx) {
-    diffRows.forEach(r => r.classList.remove('current-diff'));
-    const row = diffRows[rowIdx];
-    if (row) {
-      row.classList.add('current-diff');
-      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }
+  function showError(side, message) {
+    $(side).classList.add('invalid');
+    const e = $(side + '-error'); e.textContent = message; e.classList.add('show');
   }
 
   window.addEventListener('message', event => {
     const data = event.data;
-
-    // Safely populate initial JSON via postMessage
-    if (data.command === 'init') {
-      document.getElementById('left').value = data.json || '';
-      return;
-    }
-
+    if (data.command === 'init') { $('left').value = data.json || ''; if (data.name) $('left-name').value = data.name; return; }
+    if (data.command === 'setSide') { $(data.side).value = data.json || ''; return; }
     if (data.command !== 'diffResult') return;
 
     if (data.type === 'error') {
       clearErrors();
-      if (data.side === 'left') {
-        document.getElementById('left').classList.add('error');
-        document.getElementById('left-error').textContent = 'Invalid JSON: ' + data.message;
-      } else {
-        document.getElementById('right').classList.add('error');
-        document.getElementById('right-error').textContent = 'Invalid JSON: ' + data.message;
-      }
+      if (data.side === 'both') { showError('left', data.message); return; }
+      showError(data.side, 'Invalid JSON: ' + data.message);
       return;
     }
 
-    lastFormattedLeft  = data.formattedLeft;
     lastFormattedRight = data.formattedRight;
+    $('left').value = data.formattedLeft;
+    $('right').value = data.formattedRight;
+    $('left-title').textContent = data.leftName && data.leftName !== 'original' ? data.leftName : '';
+    $('right-title').textContent = data.rightName && data.rightName !== 'modified' ? data.rightName : '';
 
-    // Update left/right textarea with formatted versions
-    document.getElementById('left').value  = data.formattedLeft;
-    document.getElementById('right').value = data.formattedRight;
+    lines = data.lines;
+    hunks = computeHunks(lines);
+    expanded.clear();
+    currentHunk = -1;
 
-    // Titles
-    document.getElementById('left-title').textContent  = data.leftName  || 'original';
-    document.getElementById('right-title').textContent = data.rightName || 'modified';
-
-    // Summary
     const s = data.summary;
-    document.getElementById('summary').innerHTML =
-      '<span class="summary-label">diff result</span>' +
-      badge('+' + s.added   + ' added',   'added')   +
-      badge('-' + s.removed + ' removed', 'removed') +
-      badge('~' + s.changed + ' changed', 'changed') +
-      badge('=' + s.same    + ' same',    'same');
+    const identical = s.added + s.removed + s.changed === 0;
+    const summary = $('summary');
+    summary.innerHTML = '';
+    if (identical) summary.append(badge('Documents are semantically identical', 'b-identical', true));
+    summary.append(badge('+' + s.added + ' added', 'b-added'), badge('−' + s.removed + ' removed', 'b-removed'),
+                   badge('~' + s.changed + ' changed', 'b-changed'), badge('=' + s.same + ' same', 'b-same'));
+    const hint = el('span', 'kbd-hint', '');
+    hint.innerHTML = '<span><kbd>n</kbd> next</span><span><kbd>p</kbd> prev</span><span><kbd>h</kbd> hide unchanged</span>';
+    summary.append(hint);
 
-    // Build diff table
-    const tbody = document.getElementById('diff-tbody');
-    tbody.innerHTML = '';
-    diffRows = [];
-    diffIndices = [];
-    currentDiffIdx = -1;
-
-    data.lines.forEach((line, idx) => {
-      const tr = document.createElement('tr');
-      tr.className = line.type;
-
-      const leftNumTd  = td('ln ln-left',   line.leftNum  !== null ? String(line.leftNum)  : '');
-      const leftCode   = td('code code-left', esc(line.leftLine));
-      const sep        = document.createElement('td');
-      sep.className = 'mid-border';
-      const rightNumTd = td('ln ln-right',  line.rightNum !== null ? String(line.rightNum) : '');
-      const rightCode  = td('code code-right', esc(line.rightLine));
-
-      tr.append(leftNumTd, leftCode, sep, rightNumTd, rightCode);
-      tbody.appendChild(tr);
-      diffRows.push(tr);
-
-      if (line.type !== 'equal') diffIndices.push(idx);
-    });
-
-    // Show result section
-    document.getElementById('input-section').style.display  = 'none';
-    document.getElementById('result-section').style.display = 'flex';
-
-    // Jump to first diff
-    if (diffIndices.length > 0) {
-      currentDiffIdx = 0;
-      setTimeout(() => scrollToDiff(diffIndices[0]), 50);
-    }
+    render();
+    $('input-section').style.display = 'none';
+    $('result-section').style.display = 'flex';
+    if (hunks.length > 0) setTimeout(() => goToHunk(0), 30);
   });
 
-  function badge(text, cls) {
-    return '<span class="badge ' + cls + '">' + text + '</span>';
+  function computeHunks(ls) {
+    const out = [];
+    let start = -1;
+    ls.forEach((l, i) => {
+      if (l.type !== 'equal') { if (start === -1) start = i; }
+      else if (start !== -1) { out.push({ start, end: i - 1 }); start = -1; }
+    });
+    if (start !== -1) out.push({ start, end: ls.length - 1 });
+    return out;
   }
 
-  function td(cls, html) {
-    const el = document.createElement('td');
-    el.className = cls;
-    el.innerHTML = html;
-    return el;
+  function visibleRows() {
+    if (!collapse || hunks.length === 0) return lines.map((_, i) => i);
+    const keep = new Uint8Array(lines.length);
+    for (const h of hunks) for (let i = Math.max(0, h.start - CONTEXT); i <= Math.min(lines.length - 1, h.end + CONTEXT); i++) keep[i] = 1;
+    const out = [];
+    for (let i = 0; i < lines.length;) {
+      if (keep[i]) { out.push(i); i++; continue; }
+      let j = i; while (j < lines.length && !keep[j]) j++;
+      const count = j - i;
+      if (count < MIN_COLLAPSE || expanded.has(i)) { for (let k = i; k < j; k++) out.push(k); }
+      else out.push({ collapsedStart: i, count });
+      i = j;
+    }
+    return out;
   }
 
-  function esc(s) {
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  function render() {
+    const tbody = $('diff-tbody');
+    tbody.innerHTML = '';
+    rowEls = new Map();
+    const frag = document.createDocumentFragment();
+    for (const item of visibleRows()) {
+      if (typeof item === 'number') { const tr = buildRow(lines[item], item); rowEls.set(item, tr); frag.appendChild(tr); }
+      else {
+        const tr = document.createElement('tr');
+        tr.className = 'collapsed';
+        tr.dataset.start = String(item.collapsedStart);
+        const td = document.createElement('td');
+        td.colSpan = 7;
+        td.innerHTML = CHEVRON + esc(item.count + ' unchanged line' + (item.count === 1 ? '' : 's') + ' — click to show');
+        tr.appendChild(td);
+        frag.appendChild(tr);
+      }
+    }
+    tbody.appendChild(frag);
+    markCurrent();
   }
-</script>
-</body>
-</html>`;
+
+  function buildRow(line, idx) {
+    const tr = document.createElement('tr');
+    tr.className = line.type;
+    tr.dataset.idx = idx;
+    let lRange = null, rRange = null;
+    if (line.type === 'changed') { [lRange, rRange] = charDiff(line.leftLine, line.rightLine); }
+    else if (line.type === 'added') rRange = [0, line.rightLine.length];
+    else if (line.type === 'removed') lRange = [0, line.leftLine.length];
+    const hasLeft = line.leftNum !== null, hasRight = line.rightNum !== null;
+    const sign = { added: '+', removed: '−', changed: '~', equal: '' }[line.type];
+    tr.append(
+      cell('ln ln-left' + (hasLeft ? '' : ' filler'), hasLeft ? String(line.leftNum) : ''),
+      cell('sign sign-left' + (hasLeft ? '' : ' filler'), hasLeft && line.type !== 'added' ? sign : ''),
+      codeCell('code code-left' + (hasLeft ? '' : ' filler'), line.leftLine, lRange),
+      cell('mid-border', ''),
+      cell('ln ln-right' + (hasRight ? '' : ' filler'), hasRight ? String(line.rightNum) : ''),
+      cell('sign sign-right' + (hasRight ? '' : ' filler'), hasRight && line.type !== 'removed' ? sign : ''),
+      codeCell('code code-right' + (hasRight ? '' : ' filler'), line.rightLine, rRange),
+    );
+    return tr;
+  }
+
+  function charDiff(a, b) {
+    let p = 0;
+    const max = Math.min(a.length, b.length);
+    while (p < max && a[p] === b[p]) p++;
+    let s = 0;
+    while (s < max - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+    return [[p, a.length - s], [p, b.length - s]];
+  }
+
+  const TOKEN = /("(?:[^"\\\\]|\\\\.)*")(\\s*:)?|(-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)|\\b(true|false|null)\\b|([{}\\[\\],:])/g;
+
+  function tokenize(text) {
+    const tokens = [];
+    let m;
+    TOKEN.lastIndex = 0;
+    while ((m = TOKEN.exec(text)) !== null) {
+      if (m[1] !== undefined) {
+        tokens.push({ start: m.index, end: m.index + m[1].length, cls: m[2] !== undefined ? 'tk-key' : 'tk-str' });
+        if (m[2] !== undefined) tokens.push({ start: m.index + m[1].length, end: m.index + m[0].length, cls: 'tk-pun' });
+      } else if (m[3] !== undefined) tokens.push({ start: m.index, end: m.index + m[0].length, cls: 'tk-num' });
+      else if (m[4] !== undefined) tokens.push({ start: m.index, end: m.index + m[0].length, cls: 'tk-kw' });
+      else tokens.push({ start: m.index, end: m.index + m[0].length, cls: 'tk-pun' });
+    }
+    return tokens;
+  }
+
+  function codeCell(cls, text, range) {
+    const td = document.createElement('td');
+    td.className = cls;
+    if (!text) return td;
+    const bounds = new Set([0, text.length]);
+    const tokens = tokenize(text);
+    for (const t of tokens) { bounds.add(t.start); bounds.add(t.end); }
+    if (range && range[0] < range[1]) { bounds.add(range[0]); bounds.add(range[1]); }
+    const cuts = [...bounds].sort((x, y) => x - y);
+    const frag = document.createDocumentFragment();
+    let ti = 0;
+    for (let i = 0; i + 1 < cuts.length; i++) {
+      const from = cuts[i], to = cuts[i + 1];
+      while (ti < tokens.length && tokens[ti].end <= from) ti++;
+      const tok = ti < tokens.length && tokens[ti].start <= from ? tokens[ti] : null;
+      const inChange = range && from >= range[0] && to <= range[1];
+      const classes = [tok ? tok.cls : '', inChange ? 'chg' : ''].filter(Boolean);
+      const piece = text.slice(from, to);
+      if (classes.length === 0) frag.append(document.createTextNode(piece));
+      else frag.append(el('span', classes.join(' '), piece));
+    }
+    td.appendChild(frag);
+    return td;
+  }
+
+  function goToHunk(i) {
+    currentHunk = i;
+    const h = hunks[i];
+    if (!h) return;
+    if (!rowEls.has(h.start)) {
+      for (const tr of document.querySelectorAll('tr.collapsed')) {
+        const start = Number(tr.dataset.start);
+        if (start <= h.start) expanded.add(start);
+      }
+      render();
+    }
+    markCurrent();
+    const row = rowEls.get(h.start);
+    if (row) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+
+  function markCurrent() {
+    document.querySelectorAll('tr.current-diff').forEach(r => r.classList.remove('current-diff'));
+    const h = hunks[currentHunk];
+    if (h) for (let i = h.start; i <= h.end; i++) rowEls.get(i)?.classList.add('current-diff');
+    $('hunk-pos').textContent = hunks.length ? (currentHunk + 1) + ' / ' + hunks.length : '0 / 0';
+  }
+
+  function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
+  function cell(cls, text) { return el('td', cls, text); }
+  function badge(text, cls, filled) {
+    const b = el('span', 'badge ' + (filled ? '' : 'badge-outline ') + cls, '');
+    const dot = el('span', 'dot', ''); b.append(dot, document.createTextNode(text));
+    return b;
+  }
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+`;
+
+  return renderPage({ nonce, title: 'JSON Diff', css: CSS, body, script });
 }

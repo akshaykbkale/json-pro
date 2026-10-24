@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck, test, build, package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run compile
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build bundle
+        run: npm run build
+
+      - name: Package VSIX
+        run: npx vsce package --out json-pro.vsix
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: json-pro-vsix
+          path: json-pro.vsix
